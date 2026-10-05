@@ -5,12 +5,6 @@ This project is a fork of OpenCE which is Halo: Combat Evolved decompilation to 
 Windows and Android. The decompilation is of the Xbox build 2342.
 
 
-We are looking for **reverse engineers**.
-
-- AI-assisted tools are allowed, but every AI-generated change must be
-  carefully reviewed and verified by a person before it is submitted.
-
-
 ## Credits
 - The [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) project and its contributors, which this fork is based on.
 
