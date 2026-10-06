@@ -105,6 +105,7 @@ symbols in this file:
 #include "units/units.h"
 #include "object_lists.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "coop_scripts.h" /* port: port/linux/game/coop_scripts.c */
 
 /* ---------- constants */
 
@@ -166,12 +167,11 @@ boolean hs_not(
 void hs_print(
 	char const *message)
 {
-	/* BUG (preserved for exact matching): the printed string is passed as the format
-	 * (January 0x4b8970 +0x0c pushes it as terminal_printf's format), so a '%' in the
-	 * text, from a scenario script or typed at this build's console, reads arguments
-	 * that were never passed. A corrected build should print it through "%s".
-	 * Source-policy approval pending (2026-09-27 audit). */
-	terminal_printf(global_real_argb_green, message);
+	/* port: printed through "%s". January passes the text as the format
+	(0x4b8970 +0x0c pushes it as terminal_printf's format), so a '%' in it,
+	from a scenario script or typed at the console, read arguments that
+	were never passed */
+	terminal_printf(global_real_argb_green, "%s", message);
 
 	return;
 }
@@ -844,10 +844,12 @@ boolean hs_trigger_volume_test_objects_all(
 	short trigger_volume_index,
 	long object_list_index)
 {
+	/* port: in network co-op, waiting for every player means waiting for
+	any one of them (coop_scripts.c) */
 	return hs_trigger_volume_test_objects(
 		trigger_volume_index,
 		object_list_index,
-		TRUE);
+		!coop_scripts_any_player_will_do(object_list_index));
 }
 
 boolean hs_trigger_volume_test_objects_any(
@@ -986,6 +988,8 @@ void hs_object_teleport(
 	short cutscene_flag_index)
 {
 	hs_object_orient(object_index, cutscene_flag_index, TRUE, TRUE);
+	/* port: co-op players the scripts can't name go with player0 */
+	coop_scripts_teleport_followers(object_index);
 
 	return;
 }
