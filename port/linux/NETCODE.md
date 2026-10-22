@@ -203,6 +203,14 @@ screen shows) and says which version it is by the map version of the game
 record, its hash's first 32 bits (the header checksum before), which a
 client finds its file by (below, "Map sharing").
 
+SilentCartographer's versions start at 30000, so that they never meet
+OpenCE's own (which went on from 29 with formats of their own): version
+30000 takes clients' hits on, and sends the host's damage to, the map's
+scenery and devices whose shield is all damage can break (Rat Race's energy
+shields, a Custom Edition map's tripmines), which version 17 left out as
+having no body to destroy, and has every machine run those shields' stun
+and recharge itself.
+
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the
 sources' messages, kinds, bits, structs sent whole or the sizes of their
