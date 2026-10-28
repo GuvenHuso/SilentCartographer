@@ -711,7 +711,7 @@ static const struct config_setting config_settings[] =
 		"HALO_NET_STUN", _environment_value, _platform_all,
 		"Public STUN servers that tell this machine its internet address;\n"
 		"comma-separated host:port." },
-	{ "discord.application_id", _config_string, "\"1553978809840050229\"", "HALO_DISCORD_APPLICATION",
+	{ "discord.application_id", _config_string, "\"1565001149092987013\"", "HALO_DISCORD_APPLICATION",
 		_environment_value, _platform_desktop,
 		"The Discord application internet play invites go through while the\n"
 		"Discord desktop client runs; empty for none." },

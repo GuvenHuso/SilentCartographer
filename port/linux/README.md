@@ -1377,9 +1377,11 @@ In the game, each machine has an address in 100.64.0.0/10:
 
 ### Discord
 
-If the Discord desktop client operates, the game of the host shows in
-Discord (through the application of `discord.application_id`). The activity
-has a private party with the invite as its join secret. The host can send
+If the Discord desktop client operates, the game shows in Discord while it
+operates (through the application of `discord.application_id`, with the
+picture of that application's Rich Presence art asset `logo`). While the
+game hosts, the activity has a private party with the invite as its join
+secret. The host can send
 the invite with the invite button of Discord. When a person accepts it, that
 person joins the game. If the game does not operate, Discord starts it.
 The game sends the activity only to a Discord client of the same user.

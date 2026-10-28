@@ -2,10 +2,10 @@
 P2P_DISCORD.C
 
 Discord invites for internet play (p2p.c), through the Discord desktop
-client's local RPC socket (a Unix socket, or a named pipe on Windows):
-while hosting, the game's activity carries a private party whose join
-secret is the invite, so the host can send it with Discord's "Invite to
-Join" and whoever accepts it joins. Discord only hands the secret to people
+client's local RPC socket (a Unix socket, or a named pipe on Windows): the
+game shows as an activity while it runs, and while hosting the activity
+carries a private party whose join secret is the invite, so the host can
+send it with Discord's "Invite to Join" and whoever accepts it joins. Discord only hands the secret to people
 the host invited (asking to join goes unanswered).
 
 It goes through the Discord application in discord.application_id
@@ -172,6 +172,7 @@ static void send_activity(void)
 	}
 	else
 	{
+		/* (the game shows while it runs, without a party to join) */
 		size = snprintf(json, sizeof(json),
 			"{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"%lu\",\"args\":{\"pid\":%lu,\"activity\":{"
 			"\"details\":\"In Menus\","
@@ -318,6 +319,10 @@ void p2p_discord_update(void)
 		const char *application = config_string("discord.application_id");
 
 		discord.checked = 1;
+		/* the project's earlier application, which config.toml files written
+		before keep: the project's application now */
+		if (!strcmp(application, "1553978809840050229"))
+			application = "1565001149092987013";
 		/* (an application's id is digits: it goes into a file's path and
 		the handshake's JSON) */
 		if (*application && strlen(application) < sizeof(discord.application) &&
