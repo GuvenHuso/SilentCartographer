@@ -1,4 +1,4 @@
-# SilentCartographer - Halo: Combat Evolved, ported to Windows, Linux and Android.
+# Silent Cartographer - Halo: Combat Evolved, ported to Windows, Linux and Android.
 
 
 <p align="center">
