@@ -215,6 +215,25 @@ SCREENS = {
     },
 }
 
+# the controller's sticks' dead zones (port/linux/src/xinput_sdl.c's
+# halo_stick_dead_range): config.toml's, for every profile, a screen of their
+# own (a category, as Video Setup's), as the controller's screen has room for
+# one more place
+DEAD_ZONES = [("DEFAULT", "-1")] + [(f"{percent}%", str(percent)) for percent in range(0, 51, 5)]
+SCREENS["gamepad_setup"]["categories"] = [
+    ("STICK DEAD ZONES:", "gamepad_setup/dead_zones",
+     "How far each stick moves before it does\nanything."),
+]
+SCREENS["gamepad_setup/dead_zones"] = {
+    "screen": "dead_zone_settings_screen", "header": SCREENS["gamepad_setup"]["header"], "spacing": 30,
+    "rows": [
+        ("LEFT STICK:", "input.left_stick_dead_zone", DEAD_ZONES,
+         "How far the left stick moves before you move.\nDefault: the game's own, 27%.", None),
+        ("RIGHT STICK:", "input.right_stick_dead_zone", DEAD_ZONES,
+         "How far the right stick moves before the view\nturns. Default: the game's own, 27%.", None),
+    ],
+}
+
 # Video Setup's categories open ordinary settings screens. Each has the same
 # pending edits, Defaults, OK and Cancel as the other settings screens.
 _video = SCREENS["video_settings"]
