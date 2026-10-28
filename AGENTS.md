@@ -5,7 +5,11 @@ This repository ports the Halo: Combat Evolved decompilation (Xbox build
 sources are the decompilation; the port adds a platform layer that
 implements the Xbox APIs the game calls, and features the Xbox game did not
 have (a new netcode, internet play, the PC version's menus, Custom Edition
-maps, touch controls). The project is published as OpenCE.
+maps, touch controls). The project is published as SilentCartographer, a
+fork of [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) that follows
+OpenCE's `main` and releases for Windows, Linux and Android only (the web
+build still compiles, but is not released). It keeps OpenCE's network
+version, so that the two play together.
 
 Start with [README.md](README.md). The other documents are listed at the
 end.
@@ -213,7 +217,10 @@ later, public domain. GPL-2.0-only code and the 4-clause BSD licence cannot
 be. Code taken from another project, GPL 3.0 code included, keeps its
 notices and its licence, and says where it came from.
 The decompilation's upstream, punpckhdq/halo, is AGPL 3.0 from 17 October
-2026; bnunu/halo-1 is CC0.
+2026; bnunu/halo-1 is CC0. OpenCE is under the same licence, so its commits
+can be taken (`git cherry-pick -x`, or a merge of its `main`). From 28
+October 2026 SilentCartographer was briefly `GPL-3.0-or-later`; that history
+is on the `gpl-main-backup` branch.
 
 ### Commits and pull requests
 
@@ -224,6 +231,8 @@ The decompilation's upstream, punpckhdq/halo, is AGPL 3.0 from 17 October
   subject ends with `(#N)`.
 - A commit taken from a fork keeps its author and is made with
   `git cherry-pick -x`.
+- `HALO_PORT_NETWORK_VERSION` stays OpenCE's: change it only together with
+  OpenCE, or the two no longer play together.
 
 ## Documents
 
