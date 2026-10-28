@@ -31,8 +31,6 @@ enum { _error_silent = 0 };
 #define FAR_CLIP_DESIGNATOR ((short)(0x8000 | 1))
 #define DEATHLESS_DESIGNATOR ((short)(0x8000 | 5))
 
-static int messages;
-
 static void error(int kind, char const *format, ...)
 {
 	va_list arguments;
@@ -42,7 +40,6 @@ static void error(int kind, char const *format, ...)
 	vfprintf(stderr, format, arguments);
 	va_end(arguments);
 	fputc('\n', stderr);
-	messages++;
 }
 
 /* this build's tables: their indices are not the map's */
