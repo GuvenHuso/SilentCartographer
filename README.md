@@ -2,7 +2,7 @@
 
 
 <p align="center">
-  <img src="port/assets/icon/opence-icon.png" alt="OpenCE" width="128">
+  <img src="port/assets/icon/opence-icon.png" alt="SilentCartographer" width="128">
 </p>
 
 <p align="center">
@@ -25,6 +25,12 @@ released under the GNU Affero General Public License, version 3 or later,
 as OpenCE is. It follows OpenCE's latest code and adds its own changes on
 top, so it has OpenCE's features as they come out. **It plays network
 games with OpenCE**: players of either can join each other's games.
+
+<p align="center">
+  <a href="https://discord.gg/jAaYaXtvyK"><img src="docs/images/discord.png" alt="Join the SilentCartographer Discord" width="128"></a>
+  <br>
+  <a href="https://discord.gg/jAaYaXtvyK"><b>Join the SilentCartographer Discord</b></a>
+</p>
 
 ## Download
 
