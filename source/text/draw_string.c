@@ -765,10 +765,21 @@ static word parse_unicode_string(
 	switch (character)
 	{
 	case '|':
-		if (string[state->string_index++] == 'n')
+		/* port: the original took the character after every '|' before
+		looking for the 'n' of "|n", so a string ending in '|' was read on
+		past its terminator (a player's name can, from any machine), and any
+		other '|' swallowed the character after it and left the result of
+		the one before. As parse_string has it (double_byte_character), only
+		"|n" is a code; any other '|' is a character */
+		if (string[state->string_index] == 'n')
 		{
+			state->string_index++;
 			state->character = '\r';
 			state->result = _parsed_end_of_line;
+		}
+		else
+		{
+			state->result = _parsed_character;
 		}
 		break;
 	case 0:
