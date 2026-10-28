@@ -220,7 +220,8 @@ documentation of file formats, never copied.
 
 | Document | About |
 | --- | --- |
-| [README.md](README.md) | Downloads, game data, building, build options, profiling builds |
+| [README.md](README.md) | What SilentCartographer is, downloads, the legal copy of the game it needs, features, credits, licence, disclaimer |
+| [docs/building.md](docs/building.md) | Building the game, build options, optimization profiles, profiling builds |
 | [port/linux/README.md](port/linux/README.md) | The Linux build, controls, menus, every setting, updates, frame rate, field of view, system link, internet play, voice chat, the server browser, map sharing, security, map checks, how the port operates, the game source changes |
 | [port/linux/NETCODE.md](port/linux/NETCODE.md) | The distributed netcode, network versions, joining a game in progress, map sharing, transport, testing |
 | [port/windows/README.md](port/windows/README.md) | The Windows build, its headers, inline functions, crash reports |
