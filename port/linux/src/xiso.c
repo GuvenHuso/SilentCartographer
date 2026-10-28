@@ -1,187 +1,378 @@
 /*
 XISO.C
 
-Copies the maps folder out of an Xbox disc image (an "xiso"), for the
-desktop ports' first start without game data (sdl_platform.c).
+Copies the maps folder out of an Xbox disc image (an "xiso", or an image of
+a whole disc), for the desktop ports' first start without game data
+(sdl_platform.c).
 
-The image's file system is XDVDFS, read as extract-xiso does
-(https://github.com/XboxDev/extract-xiso, extract-xiso.c, whose format
-handling this follows; its license is below and in
-port/third_party/extract-xiso/LICENSE.TXT): 2048-byte sectors; a
-volume descriptor at 0x10000 that starts and ends with
-"MICROSOFT*XBOX*MEDIA" and gives the root directory's sector and size; and
-directories whose entries form a binary tree (each entry: left and right
-subtree offsets in 4-byte units, the start sector, the size, attributes, the
-name's length and the name, 4-byte aligned). Images made from a whole disc
-put the game partition further in, at one of the offsets below.
+Written for SilentCartographer from a description of the Xbox's disc file
+system (XDVDFS), not from another program's code:
+
+- The image is read in 2048-byte sectors, counted from the start of the game
+  partition. An xiso starts with the partition; an image of a whole disc has
+  the disc's video partition first, so the game partition starts at one of
+  xiso_partition_offsets.
+- The partition's sector 32 is its volume descriptor: XISO_MAGIC at its start
+  and again at XISO_MAGIC_END_OFFSET, and between them the root directory's
+  sector and size in bytes (little-endian 32-bit words).
+- A directory is a table of entries, each a node of a binary search tree
+  whose root is at the table's start: the offsets of its left and right
+  subtrees (16-bit, in 4-byte units; 0 for none), the first sector of its
+  data and the data's size (32-bit), its attributes (a byte: XISO_DIRECTORY
+  for a directory) and its name (a byte of length, then the name). Entries
+  are aligned to 4 bytes and do not cross a sector; the space after the last
+  in a sector is filled with 0xFF.
+
+The image is the player's own file but untrusted all the same: each table is
+bounded, every entry is checked against its table, every extent against the
+image, and the walk of a table visits each offset once, so that a damaged or
+crafted image is refused instead of read out of bounds or walked forever.
 
 The files are written to <destination>/maps.partial first, which becomes
 <destination>/maps once they all are, so an interrupted extraction never
 leaves a maps folder that looks complete.
-
-Some parts of this code are copyright in@fishtank.com. This product
-includes software developed by in <in@fishtank.com>.
-
- * Copyright (c) 2003 in <in@fishtank.com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *
- *    This product includes software developed by in <in@fishtank.com>.
- *
- * 4. Neither the name of "in" nor the email address "in@fishtank.com"
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED `AS IS' AND ANY EXPRESS OR IMPLIED WARRANTIES
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * AUTHOR OR ANY CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/* (the desktop ports only: the Android app and the web page import the game
-data themselves) */
 #if !defined(HALO_ANDROID) && !defined(HALO_WEB)
 
-#include "platform.h"
 #include "posix.h"
 #include "xiso.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#ifndef O_LARGEFILE
-#define O_LARGEFILE 0
+#ifndef O_BINARY
+#define O_BINARY 0
 #endif
 #ifndef O_CLOEXEC
 #define O_CLOEXEC 0
 #endif
-#ifndef O_NOFOLLOW
-#define O_NOFOLLOW 0
-#endif
 
-enum
+/* ---------- constants */
+
+#define XISO_SECTOR_SIZE 2048
+#define XISO_DESCRIPTOR_SECTOR 32
+#define XISO_MAGIC "MICROSOFT*XBOX*MEDIA"
+#define XISO_MAGIC_SIZE 20
+#define XISO_MAGIC_END_OFFSET 0x7EC
+#define XISO_ROOT_SECTOR_OFFSET 20
+#define XISO_ROOT_SIZE_OFFSET 24
+
+#define XISO_ENTRY_HEADER_SIZE 14
+#define XISO_DIRECTORY 0x10
+
+/* larger than any directory of a game disc */
+#define XISO_MAXIMUM_TABLE_SIZE (4 * 1024 * 1024)
+/* Halo's maps folder holds about 30 files */
+#define XISO_MAXIMUM_FILES 512
+#define XISO_NAME_SIZE 256
+#define XISO_COPY_SIZE (1024 * 1024)
+
+/* where the game partition starts: an xiso, then images of a whole disc of
+each of the Xbox's and the Xbox 360's disc formats */
+static const unsigned long long xiso_partition_offsets[] =
 {
-	SECTOR_SIZE = 2048,
-	VOLUME_DESCRIPTOR_OFFSET = 0x10000,
-	ENTRY_HEADER_SIZE = 14,
-	ATTRIBUTE_DIRECTORY = 0x10,
-	/* directory tables are a few sectors; anything much larger is not one */
-	MAXIMUM_DIRECTORY_SIZE = 4 << 20,
-	MAXIMUM_FILES = 256,
-	COPY_BUFFER_SIZE = 1 << 20,
+	0ULL,
+	0x18300000ULL,
+	0x0FD90000ULL,
+	0x02080000ULL,
 };
 
-static const char volume_magic[] = "MICROSOFT*XBOX*MEDIA";
-
-/* where the game partition starts: a plain image, and whole-disc images
-(extract-xiso's GLOBAL, XGD3 and XGD1 offsets) */
-static const unsigned long long partition_offsets[] = { 0, 0x0FD90000ull, 0x02080000ull, 0x18300000ull };
-
-struct xiso_file
-{
-	char name[256];
-	unsigned long sector;
-	unsigned long size;
-};
+/* ---------- types */
 
 struct xiso_image
 {
 	int descriptor;
+	unsigned long long size;
 	unsigned long long partition;
 	char *error;
 	int error_size;
 };
 
-static int name_is_plain(const char *name);
-
-static unsigned long read_u32(const unsigned char *bytes)
+struct xiso_file
 {
-	return (unsigned long)bytes[0] | (unsigned long)bytes[1] << 8 | (unsigned long)bytes[2] << 16 |
-		(unsigned long)bytes[3] << 24;
+	char name[XISO_NAME_SIZE];
+	unsigned long sector;
+	unsigned long size;
+	int directory;
+};
+
+struct xiso_file_list
+{
+	struct xiso_file *files;
+	int count;
+};
+
+/* ---------- prototypes */
+
+static int xiso_fail(struct xiso_image *image, const char *format, const char *detail);
+static unsigned long xiso_read_u32(const unsigned char *bytes);
+static unsigned short xiso_read_u16(const unsigned char *bytes);
+static int xiso_read(struct xiso_image *image, unsigned long long offset, void *buffer, unsigned long size);
+static int xiso_extent_fits(struct xiso_image *image, unsigned long sector, unsigned long size);
+static int xiso_find_partition(struct xiso_image *image, unsigned long *root_sector, unsigned long *root_size);
+static unsigned char *xiso_read_table(struct xiso_image *image, unsigned long sector, unsigned long size);
+static int xiso_list_table(const unsigned char *table, unsigned long size, struct xiso_file_list *list);
+static int xiso_plain_name(const char *name);
+static int xiso_same_name(const char *a, const char *b);
+static void xiso_join(char *path, int path_size, const char *directory, const char *name);
+static int xiso_is_directory(const char *path);
+static int xiso_make_directory(struct xiso_image *image, const char *path);
+static void xiso_empty_directory(const char *path);
+static int xiso_copy_file(struct xiso_image *image, const struct xiso_file *file, const char *path,
+	unsigned char *buffer, unsigned long long *done, unsigned long long total, xiso_progress_proc progress,
+	void *context);
+static int xiso_move_into_place(struct xiso_image *image, const struct xiso_file_list *list, const char *partial,
+	const char *maps);
+
+/* ---------- public code */
+
+int xiso_extract_maps(const char *image_path, const char *destination, xiso_progress_proc progress, void *context,
+	char *error, int error_size)
+{
+	struct xiso_image image;
+	struct posix_file_information information;
+	struct xiso_file_list root = { NULL, 0 };
+	struct xiso_file_list maps = { NULL, 0 };
+	unsigned char *table = NULL;
+	unsigned char *buffer = NULL;
+	unsigned long root_sector;
+	unsigned long root_size;
+	unsigned long long total = 0;
+	unsigned long long done = 0;
+	posix_ulong free_low;
+	posix_ulong free_high;
+	posix_ulong total_low;
+	posix_ulong total_high;
+	char partial[1200];
+	char final[1200];
+	char path[1500];
+	const struct xiso_file *maps_entry = NULL;
+	int has_ui = 0;
+	int succeeded = 0;
+	int index;
+
+	memset(&image, 0, sizeof(image));
+	image.descriptor = -1;
+	image.error = error;
+	image.error_size = error_size;
+	if (error_size > 0)
+		error[0] = '\0';
+	xiso_join(partial, sizeof(partial), destination, "maps.partial");
+	xiso_join(final, sizeof(final), destination, "maps");
+
+	image.descriptor = open(image_path, O_RDONLY | O_BINARY | O_CLOEXEC);
+	if (image.descriptor < 0)
+	{
+		xiso_fail(&image, "The disc image could not be opened:\n%s", strerror(errno));
+		goto done;
+	}
+	if (posix_fstat(image.descriptor, &information) != 0)
+	{
+		xiso_fail(&image, "The disc image could not be read:\n%s", strerror(errno));
+		goto done;
+	}
+	image.size = ((unsigned long long)information.size_high << 32) | information.size_low;
+	if (!xiso_find_partition(&image, &root_sector, &root_size))
+		goto done;
+
+	/* the root's maps folder */
+	table = xiso_read_table(&image, root_sector, root_size);
+	if (!table || !xiso_list_table(table, root_size, &root))
+	{
+		xiso_fail(&image, "%s", "The disc image's root folder is damaged.");
+		goto done;
+	}
+	free(table);
+	table = NULL;
+	for (index = 0; index < root.count; index++)
+	{
+		if (root.files[index].directory && xiso_same_name(root.files[index].name, "maps"))
+		{
+			maps_entry = &root.files[index];
+			break;
+		}
+	}
+	if (!maps_entry)
+	{
+		xiso_fail(&image, "%s", "The disc image has no maps folder: is it an image of Halo: Combat Evolved?");
+		goto done;
+	}
+	table = xiso_read_table(&image, maps_entry->sector, maps_entry->size);
+	if (!table || !xiso_list_table(table, maps_entry->size, &maps))
+	{
+		xiso_fail(&image, "%s", "The disc image's maps folder is damaged.");
+		goto done;
+	}
+
+	/* its files: plain names only, each once, each inside the image */
+	for (index = 0; index < maps.count; index++)
+	{
+		struct xiso_file *file = &maps.files[index];
+		int other;
+
+		if (file->directory || !xiso_plain_name(file->name))
+		{
+			file->name[0] = '\0';
+			continue;
+		}
+		for (other = 0; other < index; other++)
+		{
+			if (maps.files[other].name[0] && xiso_same_name(maps.files[other].name, file->name))
+				break;
+		}
+		if (other < index)
+		{
+			file->name[0] = '\0';
+			continue;
+		}
+		if (!xiso_extent_fits(&image, file->sector, file->size))
+		{
+			xiso_fail(&image, "The disc image ends before %s does: is the image complete?", file->name);
+			goto done;
+		}
+		if (xiso_same_name(file->name, "ui.map"))
+			has_ui = 1;
+		total += file->size;
+	}
+	if (!has_ui)
+	{
+		xiso_fail(&image, "%s", "The disc image's maps folder has no ui.map: is it an image of Halo: Combat Evolved?");
+		goto done;
+	}
+	if (posix_disk_space(destination, &free_low, &free_high, &total_low, &total_high) == 0 &&
+		(((unsigned long long)free_high << 32) | free_low) < total)
+	{
+		char needed[64];
+
+		snprintf(needed, sizeof(needed), "%llu MB", (total + 1048575ULL) / 1048576ULL);
+		xiso_fail(&image, "There is not enough free space for the maps folder (%s).", needed);
+		goto done;
+	}
+
+	/* copied into maps.partial, then moved into place */
+	if (!xiso_make_directory(&image, destination) || !xiso_make_directory(&image, partial))
+		goto done;
+	xiso_empty_directory(partial);
+	buffer = malloc(XISO_COPY_SIZE);
+	if (!buffer)
+	{
+		xiso_fail(&image, "%s", "Out of memory.");
+		goto done;
+	}
+	for (index = 0; index < maps.count; index++)
+	{
+		const struct xiso_file *file = &maps.files[index];
+
+		if (!file->name[0])
+			continue;
+		xiso_join(path, sizeof(path), partial, file->name);
+		if (!xiso_copy_file(&image, file, path, buffer, &done, total, progress, context))
+			goto done;
+	}
+	succeeded = xiso_move_into_place(&image, &maps, partial, final);
+
+done:
+	if (image.descriptor >= 0)
+		close(image.descriptor);
+	free(buffer);
+	free(table);
+	free(root.files);
+	free(maps.files);
+	if (!succeeded && error_size > 0 && !error[0])
+		snprintf(error, error_size, "%s", "The maps folder could not be copied.");
+	return succeeded;
 }
 
-static int fail(struct xiso_image *image, const char *format, const char *detail)
+/* ---------- private code */
+
+static int xiso_fail(struct xiso_image *image, const char *format, const char *detail)
 {
-	snprintf(image->error, (size_t)image->error_size, format, detail ? detail : "");
+	if (image->error_size > 0)
+		snprintf(image->error, image->error_size, format, detail);
 	return 0;
 }
 
-/* reads size bytes at offset (from the start of the file) */
-static int read_at(struct xiso_image *image, unsigned long long offset, void *buffer, unsigned long size)
+static unsigned long xiso_read_u32(const unsigned char *bytes)
 {
-	posix_ulong low, high;
-	unsigned char *cursor = buffer;
+	return (unsigned long)bytes[0] | ((unsigned long)bytes[1] << 8) | ((unsigned long)bytes[2] << 16) |
+		((unsigned long)bytes[3] << 24);
+}
 
-	if (posix_seek(image->descriptor, (posix_long)(offset & 0xFFFFFFFFu), (posix_long)(offset >> 32), SEEK_SET,
-		&low, &high) != 0)
-	{
+static unsigned short xiso_read_u16(const unsigned char *bytes)
+{
+	return (unsigned short)(bytes[0] | (bytes[1] << 8));
+}
+
+/* reads size bytes at offset (from the image's start); 0 if the image ends
+first or cannot be read */
+static int xiso_read(struct xiso_image *image, unsigned long long offset, void *buffer, unsigned long size)
+{
+	unsigned char *bytes = buffer;
+	unsigned long got = 0;
+
+	if (offset > image->size || size > image->size - offset)
 		return 0;
-	}
-	while (size > 0)
+	while (got < size)
 	{
-		long count = (long)read(image->descriptor, cursor, size > COPY_BUFFER_SIZE ? COPY_BUFFER_SIZE : size);
+		ssize_t count = pread(image->descriptor, bytes + got, size - got, (off_t)(offset + got));
 
+		if (count < 0 && errno == EINTR)
+			continue;
 		if (count <= 0)
 			return 0;
-		cursor += count;
-		size -= (unsigned long)count;
+		got += (unsigned long)count;
 	}
 	return 1;
 }
 
-/* the partition's volume descriptor: the root directory's sector and size */
-static int find_volume(struct xiso_image *image, unsigned long *root_sector, unsigned long *root_size)
+/* whether size bytes from the partition's sector lie inside the image */
+static int xiso_extent_fits(struct xiso_image *image, unsigned long sector, unsigned long size)
 {
-	int index;
+	unsigned long long start = image->partition + (unsigned long long)sector * XISO_SECTOR_SIZE;
 
-	for (index = 0; index < (int)(sizeof(partition_offsets) / sizeof(*partition_offsets)); index++)
-	{
-		unsigned char descriptor[SECTOR_SIZE];
-		unsigned long long offset = partition_offsets[index] + VOLUME_DESCRIPTOR_OFFSET;
-
-		if (!read_at(image, offset, descriptor, sizeof(descriptor)))
-			continue;
-		if (memcmp(descriptor, volume_magic, 20) || memcmp(descriptor + 0x7EC, volume_magic, 20))
-			continue;
-		image->partition = partition_offsets[index];
-		*root_sector = read_u32(descriptor + 20);
-		*root_size = read_u32(descriptor + 24);
-		return 1;
-	}
-	return fail(image, "This is not an Xbox disc image.%s", NULL);
+	return start <= image->size && size <= image->size - start;
 }
 
-/* a directory's table, read whole */
-static unsigned char *read_directory(struct xiso_image *image, unsigned long sector, unsigned long size)
+static int xiso_find_partition(struct xiso_image *image, unsigned long *root_sector, unsigned long *root_size)
+{
+	unsigned char sector[XISO_SECTOR_SIZE];
+	int index;
+
+	for (index = 0; index < (int)(sizeof(xiso_partition_offsets) / sizeof(*xiso_partition_offsets)); index++)
+	{
+		unsigned long long offset = xiso_partition_offsets[index] +
+			(unsigned long long)XISO_DESCRIPTOR_SECTOR * XISO_SECTOR_SIZE;
+
+		if (!xiso_read(image, offset, sector, sizeof(sector)))
+			continue;
+		if (memcmp(sector, XISO_MAGIC, XISO_MAGIC_SIZE) != 0 ||
+			memcmp(sector + XISO_MAGIC_END_OFFSET, XISO_MAGIC, XISO_MAGIC_SIZE) != 0)
+		{
+			continue;
+		}
+		image->partition = xiso_partition_offsets[index];
+		*root_sector = xiso_read_u32(sector + XISO_ROOT_SECTOR_OFFSET);
+		*root_size = xiso_read_u32(sector + XISO_ROOT_SIZE_OFFSET);
+		return 1;
+	}
+	return xiso_fail(image, "%s", "The file is not an Xbox disc image (no XDVDFS volume was found in it).");
+}
+
+/* a directory's table, or NULL if it is empty, too large or not inside the
+image */
+static unsigned char *xiso_read_table(struct xiso_image *image, unsigned long sector, unsigned long size)
 {
 	unsigned char *table;
 
-	if (!size || size > MAXIMUM_DIRECTORY_SIZE)
+	if (size < XISO_ENTRY_HEADER_SIZE || size > XISO_MAXIMUM_TABLE_SIZE || !xiso_extent_fits(image, sector, size))
 		return NULL;
 	table = malloc(size);
-	if (table && !read_at(image, image->partition + (unsigned long long)sector * SECTOR_SIZE, table, size))
+	if (table && !xiso_read(image, image->partition + (unsigned long long)sector * XISO_SECTOR_SIZE, table, size))
 	{
 		free(table);
 		table = NULL;
@@ -189,229 +380,216 @@ static unsigned char *read_directory(struct xiso_image *image, unsigned long sec
 	return table;
 }
 
-struct directory_walk
+/* lists a directory's entries by walking its tree from the table's start,
+each offset at most once; returns 0 if the table holds no valid entry or
+the list cannot be made */
+static int xiso_list_table(const unsigned char *table, unsigned long size, struct xiso_file_list *list)
 {
-	const unsigned char *table;
-	unsigned long size;
-	struct xiso_file *entries;
-	int entry_count;
-	int maximum_count;
-	int visited;
-	int directories;
-};
+	unsigned long units = (size + 3) / 4;
+	unsigned char *seen = calloc(units, 1);
+	/* (each entry is visited once and adds at most two) */
+	unsigned short *pending = malloc((2 * units + 1) * sizeof(*pending));
+	unsigned long pending_count = 0;
 
-/* collects the entries of the subtree at offset (4-byte units), files or
-directories as asked */
-static void walk_directory(struct directory_walk *walk, unsigned long offset, int depth)
-{
-	const unsigned char *entry;
-	unsigned long left, right;
-	int name_length;
-
-	offset *= 4;
-	/* a malformed table must not loop or run off its end */
-	if (depth > 64 || ++walk->visited > 4096 || offset + ENTRY_HEADER_SIZE > walk->size)
-		return;
-	entry = walk->table + offset;
-	left = (unsigned long)entry[0] | (unsigned long)entry[1] << 8;
-	right = (unsigned long)entry[2] | (unsigned long)entry[3] << 8;
-	/* 0xFFFF: padding, an empty directory */
-	if (left == 0xFFFF)
-		return;
-	name_length = entry[13];
-	if (left)
-		walk_directory(walk, left, depth + 1);
-	if (offset + ENTRY_HEADER_SIZE + (unsigned long)name_length <= walk->size && name_length > 0 &&
-		!(entry[12] & ATTRIBUTE_DIRECTORY) == !walk->directories && walk->entry_count < walk->maximum_count)
+	list->files = calloc(XISO_MAXIMUM_FILES, sizeof(*list->files));
+	list->count = 0;
+	if (!seen || !pending || !list->files)
 	{
-		struct xiso_file *file = &walk->entries[walk->entry_count];
-
-		memcpy(file->name, entry + ENTRY_HEADER_SIZE, (size_t)name_length);
-		file->name[name_length] = 0;
-		file->sector = read_u32(entry + 4);
-		file->size = read_u32(entry + 8);
-		/* (as extract-xiso refuses them: no name may leave the folder, and
-		none but a plain file name is written) */
-		if (name_is_plain(file->name))
-		{
-			walk->entry_count++;
-		}
+		free(seen);
+		free(pending);
+		return 0;
 	}
-	if (right)
-		walk_directory(walk, right, depth + 1);
+	pending[pending_count++] = 0;
+	while (pending_count > 0)
+	{
+		unsigned long unit = pending[--pending_count];
+		unsigned long offset = unit * 4;
+		const unsigned char *entry = table + offset;
+		unsigned short left;
+		unsigned short right;
+		int name_length;
+		struct xiso_file *file;
+
+		if (unit >= units || seen[unit] || offset + XISO_ENTRY_HEADER_SIZE > size)
+			continue;
+		seen[unit] = 1;
+		left = xiso_read_u16(entry);
+		right = xiso_read_u16(entry + 2);
+		name_length = entry[13];
+		/* sector padding, or a name past the table */
+		if ((left == 0xFFFF && right == 0xFFFF) || name_length == 0 ||
+			offset + XISO_ENTRY_HEADER_SIZE + name_length > size)
+		{
+			continue;
+		}
+		if (list->count < XISO_MAXIMUM_FILES)
+		{
+			file = &list->files[list->count++];
+			memcpy(file->name, entry + XISO_ENTRY_HEADER_SIZE, name_length);
+			file->name[name_length] = '\0';
+			file->sector = xiso_read_u32(entry + 4);
+			file->size = xiso_read_u32(entry + 8);
+			file->directory = (entry[12] & XISO_DIRECTORY) != 0;
+		}
+		/* (0 is no subtree: nothing points back at the root) */
+		if (left != 0 && left < units)
+			pending[pending_count++] = left;
+		if (right != 0 && right < units)
+			pending[pending_count++] = right;
+	}
+	free(seen);
+	free(pending);
+	return list->count > 0;
 }
 
-/* whether a name is one to write in the maps folder: no path, no "." or
-"..", and only printable ASCII that every desktop file system takes as a
-plain name (a disc's maps folder holds .map files and loading.tga) */
-static int name_is_plain(const char *name)
+/* a name that is safe to create in the maps folder: no separators, drive
+letters or control characters, and nothing hidden (".complete", "..") */
+static int xiso_plain_name(const char *name)
 {
-	const char *at;
+	const unsigned char *character;
 
-	if (!*name || !strcmp(name, ".") || !strcmp(name, ".."))
+	if (!name[0] || name[0] == '.')
 		return 0;
-	for (at = name; *at; at++)
+	for (character = (const unsigned char *)name; *character; character++)
 	{
-		unsigned char c = (unsigned char)*at;
-
-		if (c < 0x20 || c > 0x7e || strchr("/\\:*?\"<>|", c))
+		if (*character < 0x20 || *character == 0x7F || *character == '/' || *character == '\\' ||
+			*character == ':')
+		{
 			return 0;
+		}
 	}
 	return 1;
 }
 
-static int names_match(const char *a, const char *b)
+/* names compared as the Xbox compares them, ignoring ASCII case */
+static int xiso_same_name(const char *a, const char *b)
 {
 	for (; *a && *b; a++, b++)
 	{
-		char x = *a >= 'A' && *a <= 'Z' ? (char)(*a - 'A' + 'a') : *a;
-		char y = *b >= 'A' && *b <= 'Z' ? (char)(*b - 'A' + 'a') : *b;
+		int ca = (*a >= 'A' && *a <= 'Z') ? *a + ('a' - 'A') : *a;
+		int cb = (*b >= 'A' && *b <= 'Z') ? *b + ('a' - 'A') : *b;
 
-		if (x != y)
+		if (ca != cb)
 			return 0;
 	}
-	return !*a && !*b;
+	return *a == *b;
 }
 
-static int copy_file(struct xiso_image *image, const struct xiso_file *file, const char *path,
-	unsigned char *buffer, unsigned long long *done, unsigned long long total,
-	xiso_progress_proc progress, void *context)
+static void xiso_join(char *path, int path_size, const char *directory, const char *name)
 {
-	unsigned long long offset = image->partition + (unsigned long long)file->sector * SECTOR_SIZE;
-	unsigned long remaining = file->size;
-	/* (not through a link left in the folder) */
-	int output = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
+	size_t length = strlen(directory);
+
+	if (length > 0 && (directory[length - 1] == '/' || directory[length - 1] == '\\'))
+		snprintf(path, path_size, "%s%s", directory, name);
+	else
+		snprintf(path, path_size, "%s/%s", directory, name);
+}
+
+static int xiso_is_directory(const char *path)
+{
+	struct posix_file_information information;
+
+	return posix_stat(path, &information) == 0 && (information.flags & _posix_file_is_directory) != 0;
+}
+
+static int xiso_make_directory(struct xiso_image *image, const char *path)
+{
+	if (posix_make_directory(path) == 0 || xiso_is_directory(path))
+		return 1;
+	return xiso_fail(image, "The folder %s could not be made.", path);
+}
+
+/* removes the files an interrupted extraction left in maps.partial */
+static void xiso_empty_directory(const char *path)
+{
+	void *directory = posix_directory_open(path);
+	char name[XISO_NAME_SIZE];
+	char file[1500];
+
+	if (!directory)
+		return;
+	while (posix_directory_next(directory, name, sizeof(name)))
+	{
+		xiso_join(file, sizeof(file), path, name);
+		remove(file);
+	}
+	posix_directory_close(directory);
+}
+
+static int xiso_copy_file(struct xiso_image *image, const struct xiso_file *file, const char *path,
+	unsigned char *buffer, unsigned long long *done, unsigned long long total, xiso_progress_proc progress,
+	void *context)
+{
+	unsigned long long source = image->partition + (unsigned long long)file->sector * XISO_SECTOR_SIZE;
+	unsigned long left = file->size;
+	int output = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY | O_CLOEXEC, 0644);
 
 	if (output < 0)
-		return fail(image, "Could not write %s.", path);
-	while (remaining > 0)
+		return xiso_fail(image, "A map could not be written:\n%s", strerror(errno));
+	if (progress)
+		progress(context, file->name, *done, total);
+	while (left > 0)
 	{
-		unsigned long count = remaining > COPY_BUFFER_SIZE ? COPY_BUFFER_SIZE : remaining;
+		unsigned long count = left < XISO_COPY_SIZE ? left : XISO_COPY_SIZE;
 		unsigned long written = 0;
 
-		if (!read_at(image, offset, buffer, count))
+		if (!xiso_read(image, source, buffer, count))
 		{
 			close(output);
-			return fail(image, "Could not read %s from the disc image (is it complete?).", file->name);
+			return xiso_fail(image, "The disc image could not be read at %s: is the image complete?", file->name);
 		}
 		while (written < count)
 		{
-			long result = (long)write(output, buffer + written, count - written);
+			ssize_t result = write(output, buffer + written, count - written);
 
+			if (result < 0 && errno == EINTR)
+				continue;
 			if (result <= 0)
 			{
 				close(output);
-				return fail(image, "Could not write %s (is the disk full?).", path);
+				return xiso_fail(image, "A map could not be written:\n%s", result < 0 ? strerror(errno) : "the disk is full");
 			}
 			written += (unsigned long)result;
 		}
-		offset += count;
-		remaining -= count;
+		source += count;
+		left -= count;
 		*done += count;
 		if (progress)
 			progress(context, file->name, *done, total);
 	}
 	if (close(output) != 0)
-		return fail(image, "Could not write %s (is the disk full?).", path);
+		return xiso_fail(image, "A map could not be written:\n%s", strerror(errno));
 	return 1;
 }
 
-int xiso_extract_maps(const char *image_path, const char *destination, xiso_progress_proc progress, void *context,
-	char *error, int error_size)
+/* maps.partial becomes maps; where a maps folder is already there (empty, or
+from an earlier copy that lacked ui.map) the files are moved into it one by
+one, each replacing its namesake */
+static int xiso_move_into_place(struct xiso_image *image, const struct xiso_file_list *list, const char *partial,
+	const char *maps)
 {
-	struct xiso_image image;
-	struct xiso_file *entries = NULL;
-	unsigned char *table = NULL;
-	unsigned char *buffer = NULL;
-	unsigned long root_sector, root_size;
-	unsigned long long total = 0, done = 0;
-	char partial[1024], final[1024], path[1300];
-	int result = 0;
+	char from[1500];
+	char to[1500];
 	int index;
 
-	image.error = error;
-	image.error_size = error_size;
-	image.descriptor = open(image_path, O_RDONLY | O_LARGEFILE | O_CLOEXEC);
-	if (image.descriptor < 0)
-		return fail(&image, "Could not open %s.", image_path);
-	entries = calloc(MAXIMUM_FILES, sizeof(*entries));
-	buffer = malloc(COPY_BUFFER_SIZE);
-	if (!entries || !buffer)
+	if (rename(partial, maps) == 0)
+		return 1;
+	if (!xiso_is_directory(maps))
+		return xiso_fail(image, "The maps folder could not be put in place:\n%s", strerror(errno));
+	for (index = 0; index < list->count; index++)
 	{
-		fail(&image, "Out of memory.%s", NULL);
-		goto done;
+		if (!list->files[index].name[0])
+			continue;
+		xiso_join(from, sizeof(from), partial, list->files[index].name);
+		xiso_join(to, sizeof(to), maps, list->files[index].name);
+		remove(to);
+		if (rename(from, to) != 0)
+			return xiso_fail(image, "The maps folder could not be put in place:\n%s", strerror(errno));
 	}
-	if (!find_volume(&image, &root_sector, &root_size))
-		goto done;
-
-	/* the root's maps folder */
-	table = read_directory(&image, root_sector, root_size);
-	if (!table)
-	{
-		fail(&image, "The disc image's file system is damaged.%s", NULL);
-		goto done;
-	}
-	{
-		struct directory_walk walk = { table, root_size, entries, 0, MAXIMUM_FILES, 0, 1 };
-
-		walk_directory(&walk, 0, 0);
-		for (index = 0; index < walk.entry_count && !names_match(entries[index].name, "maps"); index++)
-			;
-		if (index == walk.entry_count)
-		{
-			fail(&image, "The disc image has no maps folder: it is not a Halo disc.%s", NULL);
-			goto done;
-		}
-		free(table);
-		table = read_directory(&image, entries[index].sector, entries[index].size);
-		if (!table)
-		{
-			fail(&image, "The disc image's maps folder is damaged.%s", NULL);
-			goto done;
-		}
-		root_size = entries[index].size;
-	}
-
-	/* its files */
-	{
-		struct directory_walk walk = { table, root_size, entries, 0, MAXIMUM_FILES, 0, 0 };
-		int has_ui = 0;
-
-		walk_directory(&walk, 0, 0);
-		for (index = 0; index < walk.entry_count; index++)
-		{
-			total += entries[index].size;
-			has_ui |= names_match(entries[index].name, "ui.map");
-		}
-		if (!has_ui)
-		{
-			fail(&image, "The disc image's maps folder has no ui.map: it is not a Halo disc.%s", NULL);
-			goto done;
-		}
-		snprintf(partial, sizeof(partial), "%s/maps.partial", destination);
-		snprintf(final, sizeof(final), "%s/maps", destination);
-		posix_make_directory(partial);
-		for (index = 0; index < walk.entry_count; index++)
-		{
-			snprintf(path, sizeof(path), "%s/%s", partial, entries[index].name);
-			platform_log("extracting maps/%s (%lu bytes)", entries[index].name, entries[index].size);
-			if (!copy_file(&image, &entries[index], path, buffer, &done, total, progress, context))
-				goto done;
-		}
-		if (rename(partial, final) != 0)
-		{
-			fail(&image, "Could not create %s.", final);
-			goto done;
-		}
-	}
-	result = 1;
-
-done:
-	close(image.descriptor);
-	free(table);
-	free(entries);
-	free(buffer);
-	return result;
+	/* (empty now: remove takes an empty folder on POSIX systems; one left on
+	Windows does no harm) */
+	remove(partial);
+	return 1;
 }
 
 #endif

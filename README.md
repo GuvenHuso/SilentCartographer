@@ -12,6 +12,12 @@ Windows, Android and web browsers. The decompilation is of the Xbox build 2342
 The port starts from the decompilation of [bnunu/halo-1](https://github.com/bnunu/halo-1).
 That project is a fork of [punpckhdq/halo](https://github.com/punpckhdq/halo).
 
+SilentCartographer is a fork of [OpenCE](https://github.com/OpenCommunityEdition/OpenCE)
+under the GNU General Public License, version 3 or later. It is built on
+OpenCE's code from before OpenCE moved to the AGPL on 19 October 2026, which
+was CC0. Refer to "Licence", at the end. It plays on its own network versions
+(from 30000), so it does not play network games with OpenCE.
+
 ## Download
 
 GitHub Actions builds the game for each commit. These links download the
@@ -19,10 +25,10 @@ builds of the latest release:
 
 | Platform | Release | Debug |
 | --- | --- | --- |
-| Linux | [halo-linux-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-linux-release.zip) | [halo-linux-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-linux-debug.zip) |
-| Windows | [halo-windows-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-windows-release.zip) | [halo-windows-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-windows-debug.zip) |
-| Android | [halo-android-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-android-release.zip) | [halo-android-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-android-debug.zip) |
-| Web | [halocombatevolved.com](https://halocombatevolved.com/) (or [halo-web-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-web-release.zip) for your own server) | [halo-web-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-web-debug.zip) |
+| Linux | [halo-linux-release.zip](https://github.com/GuvenHuso/SilentCartographer/releases/latest/download/halo-linux-release.zip) | [halo-linux-debug.zip](https://github.com/GuvenHuso/SilentCartographer/releases/latest/download/halo-linux-debug.zip) |
+| Windows | [halo-windows-release.zip](https://github.com/GuvenHuso/SilentCartographer/releases/latest/download/halo-windows-release.zip) | [halo-windows-debug.zip](https://github.com/GuvenHuso/SilentCartographer/releases/latest/download/halo-windows-debug.zip) |
+| Android | [halo-android-release.zip](https://github.com/GuvenHuso/SilentCartographer/releases/latest/download/halo-android-release.zip) | [halo-android-debug.zip](https://github.com/GuvenHuso/SilentCartographer/releases/latest/download/halo-android-debug.zip) |
+| Web | [halo-web-release.zip](https://github.com/GuvenHuso/SilentCartographer/releases/latest/download/halo-web-release.zip) (for your own server) | [halo-web-debug.zip](https://github.com/GuvenHuso/SilentCartographer/releases/latest/download/halo-web-debug.zip) |
 
 Use the release build to play. The debug build stops at the first failed
 assertion and writes it to the log. Use the debug build to find and report
@@ -34,7 +40,7 @@ if you want to install it. Refer to "Updates" in
 each new build when it is out.
 
 Each build of the `main` branch that passes on all four platforms is a new
-release, and the web site then plays it. The [Releases](https://github.com/OpenCommunityEdition/OpenCE/releases)
+release, and the web site then plays it. The [Releases](https://github.com/GuvenHuso/SilentCartographer/releases)
 page keeps the last five releases. If the latest build has a problem, get
 an older build from that page.
 
@@ -202,3 +208,33 @@ Enter `adb pull` to copy the recording parts to a computer.
 
 A profiling build plays with normal builds. It does not use
 `--pgo=train`.
+
+
+## Licence
+
+SilentCartographer is free software: you can give it to others and change
+it under the terms of the GNU General Public License as published by the
+Free Software Foundation, version 3 of the License or (at your option) any
+later version (`GPL-3.0-or-later`). It comes with no warranty. The full text
+is in [LICENSE](LICENSE).
+
+- **What it is built on.** SilentCartographer starts from OpenCE's commit
+  `81a768bc` (18 October 2026), the last before OpenCE moved to the AGPL
+  3.0. OpenCE's code to that commit, and the decompilation it carries (of
+  [bnunu/halo-1](https://github.com/bnunu/halo-1), and of
+  [punpckhdq/halo](https://github.com/punpckhdq/halo) from before 17
+  October 2026), was released under [CC0 1.0](LICENSES/CC0-1.0.txt). Nothing
+  OpenCE or punpckhdq/halo released under the AGPL is in it.
+- **The disc image readers** (`port/linux/src/xiso.c`, the Android app's
+  `XisoExtractor.java`, the web page's `xiso-worker.js`) were written again
+  for SilentCartographer from a description of the Xbox's disc file system,
+  in place of code that followed extract-xiso, whose licence's advertising
+  clause the GPL does not allow.
+- **Contributions** are under `GPL-3.0-or-later`.
+- **Third-party code, fonts and art** keep their own licences, which are
+  next to them (`port/third_party`, `port/assets/fonts`,
+  `port/assets/icons`, `port/assets/text_filter`). The release downloads and
+  the web site's `licenses.txt` carry their notices.
+- **Halo is not covered.** The licence covers the work of SilentCartographer's
+  and OpenCE's authors. It gives no rights in Halo, its maps or anything else
+  that Microsoft owns.

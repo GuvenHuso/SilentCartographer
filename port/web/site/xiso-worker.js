@@ -10,16 +10,18 @@ synchronous OPFS access handles (Safari has no OPFS writable streams), and
 reads the image a slice at a time: an image is 4 to 7 GB, and nothing of it
 is kept but the maps.
 
-The image's file system is XDVDFS, read as extract-xiso does
-(port/third_party/extract-xiso): 2048-byte sectors; a volume descriptor at
-0x10000 that starts and ends with "MICROSOFT*XBOX*MEDIA" and gives the root
-directory's sector and size; directories whose entries form a binary tree
-(left and right subtree offsets in 4-byte units, the start sector, the size,
-attributes, the name's length and the name). Images of a whole disc put the
-game partition further in, at one of PARTITION_OFFSETS. The image is the
-player's file, so it is untrusted: every offset and size is checked against
-the image and the directory it is read from, and a directory's walk is
-bounded.
+The disc reading was written for SilentCartographer from a description of
+the Xbox's disc file system (XDVDFS), not from another program's code, as
+xiso.c's was: 2048-byte sectors, counted from the game partition's start (at
+one of PARTITION_OFFSETS); the partition's sector 32 is its volume
+descriptor, MAGIC at its start and at MAGIC_END_OFFSET with the root
+directory's sector and size between; and a directory is a table of entries,
+each a node of a binary search tree whose root is at the table's start (left
+and right subtree offsets in 4-byte units, 0 for none; the data's first
+sector and size; attributes; the name's length and the name). The image is
+the player's file, so it is untrusted: each table is bounded, every entry is
+checked against its table and every extent against the image, and a table's
+walk visits each offset once.
 
 Each map is checked as the game checks it when it loads it (cache_files.c):
 "head" and "foot" signatures, the Xbox's cache version, and the build of a
@@ -33,14 +35,20 @@ total }, then { type: 'done', files, bytes } or { type: 'error', message }.
 'use strict';
 
 const SECTOR_SIZE = 2048;
-const VOLUME_DESCRIPTOR_OFFSET = 0x10000;
-const PARTITION_OFFSETS = [0, 0x0FD90000, 0x02080000, 0x18300000];
+const DESCRIPTOR_SECTOR = 32;
+// where the game partition starts: an xiso, then images of a whole disc of
+// each of the Xbox's and the Xbox 360's disc formats
+const PARTITION_OFFSETS = [0, 0x18300000, 0x0FD90000, 0x02080000];
 const MAGIC = 'MICROSOFT*XBOX*MEDIA';
+const MAGIC_END_OFFSET = 0x7EC;
+const ROOT_SECTOR_OFFSET = 20;
+const ROOT_SIZE_OFFSET = 24;
 const ENTRY_HEADER_SIZE = 14;
-const ATTRIBUTE_DIRECTORY = 0x10;
-const MAXIMUM_DIRECTORY_SIZE = 1024 * 1024;
-const MAXIMUM_ENTRIES = 4096;
-const MAXIMUM_DEPTH = 64;
+const DIRECTORY = 0x10;
+// larger than any directory of a game disc
+const MAXIMUM_TABLE_SIZE = 4 * 1024 * 1024;
+// Halo's maps folder holds about 30 files
+const MAXIMUM_FILES = 512;
 const COPY_CHUNK = 4 * 1024 * 1024;
 const MAP_HEADER_SIZE = 0x800;
 const CACHE_VERSION = 5;
@@ -48,82 +56,100 @@ const BUILDS = ['01.10.12.2276', '01.01.14.2342'];
 // written last: the page starts the game only when it is there
 const COMPLETE_MARKER = '.complete';
 
+// size bytes of a File or Blob at offset, as a Uint8Array (shorter where the
+// file ends first)
 async function readAt(file, offset, size) {
-  const end = Math.min(offset + size, file.size);
-  if (offset < 0 || offset >= end) return new Uint8Array(0);
-  return new Uint8Array(await file.slice(offset, end).arrayBuffer());
+  return new Uint8Array(await file.slice(offset, offset + size).arrayBuffer());
 }
 
 function text(bytes, start, length) {
   let result = '';
-  for (let i = 0; i < length; i++) result += String.fromCharCode(bytes[start + i]);
+  for (let index = start; index < start + length && index < bytes.length; index++) {
+    result += String.fromCharCode(bytes[index]);
+  }
   return result;
 }
 
 function u16(bytes, at) {
-  return bytes[at] | bytes[at + 1] << 8;
+  return bytes[at] | (bytes[at + 1] << 8);
 }
 
 function u32(bytes, at) {
-  return (bytes[at] | bytes[at + 1] << 8 | bytes[at + 2] << 16 | bytes[at + 3] << 24) >>> 0;
+  return (bytes[at] | (bytes[at + 1] << 8) | (bytes[at + 2] << 16) | (bytes[at + 3] << 24)) >>> 0;
 }
 
+// the game partition's start and its root directory's sector and size
 async function findVolume(file) {
   for (const partition of PARTITION_OFFSETS) {
-    const descriptor = await readAt(file, partition + VOLUME_DESCRIPTOR_OFFSET, SECTOR_SIZE);
-    if (descriptor.length < SECTOR_SIZE) continue;
-    if (text(descriptor, 0, 20) === MAGIC && text(descriptor, 0x7EC, 20) === MAGIC) {
-      return { partition, rootSector: u32(descriptor, 20), rootSize: u32(descriptor, 24) };
+    const at = partition + DESCRIPTOR_SECTOR * SECTOR_SIZE;
+    if (at + SECTOR_SIZE > file.size) continue;
+    const sector = await readAt(file, at, SECTOR_SIZE);
+    if (sector.length !== SECTOR_SIZE || text(sector, 0, MAGIC.length) !== MAGIC ||
+        text(sector, MAGIC_END_OFFSET, MAGIC.length) !== MAGIC) {
+      continue;
     }
+    return { partition, rootSector: u32(sector, ROOT_SECTOR_OFFSET), rootSize: u32(sector, ROOT_SIZE_OFFSET) };
   }
-  return null;
+  throw new Error('The file is not an Xbox disc image (no XDVDFS volume was found in it).');
 }
 
-// a name a file of the maps folder may have: no path, nothing hidden
+// a name that is safe to create in the maps folder: no separators or control
+// characters, and nothing hidden (the complete marker, "..")
 function plainName(name) {
-  return name.length > 0 && name.length <= 64 && /^[A-Za-z0-9_.\- ]+$/.test(name) && !name.startsWith('.');
+  return name.length > 0 && name[0] !== '.' && !/[\u0000-\u001f\u007f/\\:]/.test(name);
 }
 
-// the entries of a directory table: { name, sector, size, directory }
+// a directory's entries, { name, sector, size, directory }, its tree walked
+// from the table's start with each offset visited once
 function walkDirectory(table) {
+  const units = Math.ceil(table.length / 4);
+  const seen = new Uint8Array(units);
+  const pending = [0];
   const entries = [];
-  const seen = new Set();
-  const walk = (offset, depth) => {
-    offset *= 4;
-    // (a cycle, a tree too deep or too wide, or an entry past the table:
-    // what is left of it is ignored)
-    if (depth > MAXIMUM_DEPTH || seen.has(offset) || seen.size >= MAXIMUM_ENTRIES ||
-        offset + ENTRY_HEADER_SIZE > table.length) {
-      return;
-    }
-    seen.add(offset);
+  while (pending.length > 0) {
+    const unit = pending.pop();
+    const offset = unit * 4;
+    if (unit >= units || seen[unit] || offset + ENTRY_HEADER_SIZE > table.length) continue;
+    seen[unit] = 1;
     const left = u16(table, offset);
     const right = u16(table, offset + 2);
-    // (padding at the end of a sector)
-    if (left === 0xFFFF) return;
     const nameLength = table[offset + 13];
-    if (left) walk(left, depth + 1);
-    if (nameLength > 0 && offset + ENTRY_HEADER_SIZE + nameLength <= table.length) {
+    // sector padding, or a name past the table
+    if ((left === 0xFFFF && right === 0xFFFF) || nameLength === 0 ||
+        offset + ENTRY_HEADER_SIZE + nameLength > table.length) {
+      continue;
+    }
+    if (entries.length < MAXIMUM_FILES) {
       entries.push({
         name: text(table, offset + ENTRY_HEADER_SIZE, nameLength),
         sector: u32(table, offset + 4),
         size: u32(table, offset + 8),
-        directory: (table[offset + 12] & ATTRIBUTE_DIRECTORY) !== 0,
+        directory: (table[offset + 12] & DIRECTORY) !== 0,
       });
     }
-    if (right) walk(right, depth + 1);
-  };
-  walk(0, 0);
+    // (0 is no subtree: nothing points back at the root)
+    if (left !== 0 && left < units) pending.push(left);
+    if (right !== 0 && right < units) pending.push(right);
+  }
   return entries;
 }
 
-async function readDirectory(file, volume, sector, size) {
-  if (!size || size > MAXIMUM_DIRECTORY_SIZE) return null;
-  const offset = volume.partition + sector * SECTOR_SIZE;
-  if (offset + size > file.size) return null;
-  const table = await readAt(file, offset, size);
-  return table.length === size ? table : null;
+// where an extent starts in the image, or -1 if it does not lie inside it
+function extentStart(file, volume, sector, size) {
+  const start = volume.partition + sector * SECTOR_SIZE;
+  return start <= file.size && size <= file.size - start ? start : -1;
 }
+
+// a directory's entries; damaged if its table is empty, too large or not
+// inside the image
+async function readDirectory(file, volume, sector, size, what) {
+  const start = extentStart(file, volume, sector, size);
+  const entries = size >= ENTRY_HEADER_SIZE && size <= MAXIMUM_TABLE_SIZE && start >= 0 ?
+    walkDirectory(await readAt(file, start, size)) : [];
+  if (entries.length === 0) throw new Error(`The disc image's ${what} is damaged.`);
+  return entries;
+}
+
 
 // why a map's header is not one the game loads, or null
 function mapProblem(header) {
@@ -158,20 +184,18 @@ async function checkedFiles(candidates) {
 
 async function imageFiles(file) {
   const volume = await findVolume(file);
-  if (!volume) throw new Error('This file is not an Xbox disc image (no XDVDFS volume was found).');
-  const root = await readDirectory(file, volume, volume.rootSector, volume.rootSize);
-  if (!root) throw new Error("The disc image's file system is damaged.");
-  const maps = walkDirectory(root).find((entry) => entry.directory && entry.name.toLowerCase() === 'maps');
-  if (!maps) throw new Error('The disc image has no maps folder: it is not a Halo disc.');
-  const table = await readDirectory(file, volume, maps.sector, maps.size);
-  if (!table) throw new Error("The disc image's maps folder is damaged.");
-  return checkedFiles(walkDirectory(table).filter((entry) => !entry.directory).map((entry) => {
-    const offset = volume.partition + entry.sector * SECTOR_SIZE;
-    if (offset + entry.size > file.size) {
-      throw new Error(`The disc image ends before ${entry.name} does: is it complete?`);
-    }
-    return { name: entry.name, size: entry.size, read: (at, size) => readAt(file, offset + at, Math.min(size, entry.size - at)) };
-  }));
+  const root = await readDirectory(file, volume, volume.rootSector, volume.rootSize, 'root folder');
+  const maps = root.find((entry) => entry.directory && entry.name.toLowerCase() === 'maps');
+  if (!maps) throw new Error('The disc image has no maps folder: is it an image of Halo: Combat Evolved?');
+  const candidates = [];
+  for (const entry of await readDirectory(file, volume, maps.sector, maps.size, 'maps folder')) {
+    if (entry.directory || !plainName(entry.name)) continue;
+    if (candidates.some((other) => other.name.toLowerCase() === entry.name.toLowerCase())) continue;
+    const start = extentStart(file, volume, entry.sector, entry.size);
+    if (start < 0) throw new Error(`The disc image ends before ${entry.name} does: is the image complete?`);
+    candidates.push({ name: entry.name, size: entry.size, read: (at, size) => readAt(file, start + at, size) });
+  }
+  return checkedFiles(candidates);
 }
 
 async function folderFiles(list) {

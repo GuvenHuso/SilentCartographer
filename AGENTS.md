@@ -190,10 +190,21 @@ otherwise.
 
 ### Third-party code and licences
 
-The repository is CC0. Vendored code goes in `port/third_party/<name>`,
-copied unchanged, with a README naming the upstream, the version or commit,
-the checksum and what uses it. GPL code (OpenSauce, Reclaimer) may be read
-as documentation of file formats, never copied.
+The repository is `GPL-3.0-or-later` (`LICENSE`). It is built on OpenCE's
+code from before OpenCE moved to the AGPL (commit `81a768bc`), which is CC0
+(`LICENSES/CC0-1.0.txt`); the README's "Licence" section says what each part
+is under. Never copy code that OpenCE or punpckhdq/halo released under the
+AGPL (OpenCE's commits from `4b09168e` on, punpckhdq/halo's from 17 October
+2026): it would bring the AGPL's terms with it. A change its own author
+wrote may come over, from its author, under the GPL.
+
+Vendored code goes in `port/third_party/<name>`, copied unchanged, with a
+README naming the upstream, the version or commit, the licence, the checksum
+and what uses it. Its licence must let it be combined with the GPL 3.0: MIT,
+BSD (without an advertising clause), ISC, zlib, Apache 2.0, MPL 2.0, LGPL or
+GPL 3.0 or later, public domain. GPL-2.0-only code and the 4-clause BSD
+licence cannot be. GPL code (OpenSauce, Reclaimer) may be read as
+documentation of file formats, never copied.
 
 ### Commits and pull requests
 

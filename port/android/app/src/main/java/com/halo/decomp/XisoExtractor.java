@@ -7,79 +7,50 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
- * Copies the maps folder out of an Xbox disc image (an "xiso", or a whole
- * disc's ".iso"), as the desktop games do (port/linux/src/xiso.c, which this
- * follows).
+ * Copies the maps folder out of an Xbox disc image (an "xiso", or an image of
+ * a whole disc), as the desktop games do (port/linux/src/xiso.c, whose
+ * checks this has too).
  *
- * The image's file system is XDVDFS, read as extract-xiso does
- * (https://github.com/XboxDev/extract-xiso, extract-xiso.c, whose format
- * handling this follows; its license is below and in
- * port/third_party/extract-xiso/LICENSE.TXT): 2048-byte sectors; a volume
- * descriptor at 0x10000 that starts and ends with "MICROSOFT*XBOX*MEDIA" and
- * gives the root directory's sector and size; and directories whose entries
- * form a binary tree (each entry: left and right subtree offsets in 4-byte
- * units, the start sector, the size, attributes, the name's length and the
- * name, 4-byte aligned). Images made from a whole disc put the game partition
- * further in, at one of the offsets below.
+ * Written for SilentCartographer from a description of the Xbox's disc file
+ * system (XDVDFS), not from another program's code: 2048-byte sectors,
+ * counted from the game partition's start (at one of PARTITION_OFFSETS); the
+ * partition's sector 32 is its volume descriptor, VOLUME_MAGIC at its start
+ * and at MAGIC_END_OFFSET with the root directory's sector and size between;
+ * and a directory is a table of entries, each a node of a binary search tree
+ * whose root is at the table's start (left and right subtree offsets in
+ * 4-byte units, 0 for none; the data's first sector and size; attributes,
+ * DIRECTORY for a directory; the name's length and the name).
+ *
+ * The image is untrusted: each table is bounded, every entry is checked
+ * against its table and every extent against the image, and a table's walk
+ * visits each offset once.
  *
  * The files are written to maps.partial first and moved into maps once they
  * all are, so an interrupted extraction never leaves maps/ui.map behind.
- *
- * Some parts of this code are copyright in@fishtank.com. This product
- * includes software developed by in &lt;in@fishtank.com&gt;.
- *
- * Copyright (c) 2003 in &lt;in@fishtank.com&gt;
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *
- *    This product includes software developed by in &lt;in@fishtank.com&gt;.
- *
- * 4. Neither the name of "in" nor the email address "in@fishtank.com"
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED `AS IS' AND ANY EXPRESS OR IMPLIED WARRANTIES
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * AUTHOR OR ANY CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 final class XisoExtractor {
     private static final int SECTOR_SIZE = 2048;
-    private static final long VOLUME_DESCRIPTOR_OFFSET = 0x10000;
-    private static final int ENTRY_HEADER_SIZE = 14;
-    private static final int ATTRIBUTE_DIRECTORY = 0x10;
-    /* directory tables are a few sectors; anything much larger is not one */
-    private static final long MAXIMUM_DIRECTORY_SIZE = 4 << 20;
-    private static final int MAXIMUM_FILES = 256;
-    private static final int COPY_BUFFER_SIZE = 1 << 20;
+    private static final long DESCRIPTOR_SECTOR = 32;
     private static final byte[] VOLUME_MAGIC = "MICROSOFT*XBOX*MEDIA".getBytes(StandardCharsets.US_ASCII);
-
-    /* where the game partition starts: a plain image, and whole-disc images
-    (extract-xiso's GLOBAL, XGD3 and XGD1 offsets) */
-    private static final long[] PARTITION_OFFSETS = { 0, 0x0FD90000L, 0x02080000L, 0x18300000L };
+    private static final int MAGIC_END_OFFSET = 0x7EC;
+    private static final int ROOT_SECTOR_OFFSET = 20;
+    private static final int ROOT_SIZE_OFFSET = 24;
+    private static final int ENTRY_HEADER_SIZE = 14;
+    private static final int DIRECTORY = 0x10;
+    /* larger than any directory of a game disc */
+    private static final long MAXIMUM_TABLE_SIZE = 4L * 1024 * 1024;
+    /* Halo's maps folder holds about 30 files */
+    private static final int MAXIMUM_FILES = 512;
+    private static final int COPY_SIZE = 1024 * 1024;
+    /* where the game partition starts: an xiso, then images of a whole disc
+       of each of the Xbox's and the Xbox 360's disc formats */
+    private static final long[] PARTITION_OFFSETS = { 0, 0x18300000L, 0x0FD90000L, 0x02080000L };
 
     interface Progress {
         void report(String file, long done, long total);
@@ -92,23 +63,27 @@ final class XisoExtractor {
         }
     }
 
-    private static final class Entry {
+    static final class Entry {
         final String name;
         final long sector;
         final long size;
+        final boolean directory;
 
-        Entry(String name, long sector, long size) {
+        Entry(String name, long sector, long size, boolean directory) {
             this.name = name;
             this.sector = sector;
             this.size = size;
+            this.directory = directory;
         }
     }
 
     private final FileChannel image;
+    private final long imageSize;
     private long partition;
 
-    private XisoExtractor(FileChannel image) {
+    private XisoExtractor(FileChannel image) throws IOException {
         this.image = image;
+        this.imageSize = image.size();
     }
 
     /** copies the image's maps folder to destination/maps */
@@ -116,15 +91,123 @@ final class XisoExtractor {
         new XisoExtractor(image).extract(destination, progress);
     }
 
-    private void readAt(long offset, ByteBuffer buffer) throws IOException {
+    private void extract(File destination, Progress progress) throws IOException {
+        long[] root = findPartition();
+        Entry mapsFolder = null;
+        List<Entry> files = new ArrayList<>();
+        long total = 0;
+        long done = 0;
+        boolean hasUi = false;
+
+        List<Entry> rootEntries = listTable(readTable(root[0], root[1]));
+        if (rootEntries.isEmpty())
+            throw new ExtractException("The disc image's root folder is damaged.");
+        for (Entry entry : rootEntries) {
+            if (entry.directory && entry.name.equalsIgnoreCase("maps")) {
+                mapsFolder = entry;
+                break;
+            }
+        }
+        if (mapsFolder == null)
+            throw new ExtractException("The disc image has no maps folder: is it an image of Halo: Combat Evolved?");
+        List<Entry> mapsEntries = listTable(readTable(mapsFolder.sector, mapsFolder.size));
+        if (mapsEntries.isEmpty())
+            throw new ExtractException("The disc image's maps folder is damaged.");
+
+        // plain names only, each once, each inside the image
+        for (Entry entry : mapsEntries) {
+            boolean seen = false;
+
+            if (entry.directory || !isPlainName(entry.name))
+                continue;
+            for (Entry other : files)
+                seen |= other.name.equalsIgnoreCase(entry.name);
+            if (seen)
+                continue;
+            if (!extentFits(entry.sector, entry.size))
+                throw new ExtractException("The disc image ends before " + entry.name + " does: is the image complete?");
+            hasUi |= entry.name.equalsIgnoreCase("ui.map");
+            total += entry.size;
+            files.add(entry);
+        }
+        if (!hasUi)
+            throw new ExtractException("The disc image's maps folder has no ui.map: is it an image of Halo: Combat Evolved?");
+        if (destination.getUsableSpace() > 0 && destination.getUsableSpace() < total)
+            throw new ExtractException("There is not enough free space for the maps folder ("
+                + ((total + (1 << 20) - 1) >> 20) + " MB).");
+
+        File partial = new File(destination, "maps.partial");
+        File maps = new File(destination, "maps");
+        if (!partial.isDirectory() && !partial.mkdirs())
+            throw new ExtractException("The folder " + partial + " could not be made.");
+        File[] stale = partial.listFiles();
+        if (stale != null) {
+            for (File file : stale)
+                file.delete();
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(COPY_SIZE);
+        for (Entry file : files) {
+            long source = partition + file.sector * SECTOR_SIZE;
+            long left = file.size;
+
+            progress.report(file.name, done, total);
+            try (FileOutputStream output = new FileOutputStream(new File(partial, file.name))) {
+                while (left > 0) {
+                    int count = (int) Math.min(left, COPY_SIZE);
+
+                    buffer.clear();
+                    buffer.limit(count);
+                    if (!readAt(source, buffer))
+                        throw new ExtractException("The disc image could not be read at " + file.name + ": is the image complete?");
+                    output.write(buffer.array(), 0, count);
+                    source += count;
+                    left -= count;
+                    done += count;
+                    progress.report(file.name, done, total);
+                }
+            }
+        }
+        moveIntoPlace(files, partial, maps);
+    }
+
+    /** reads buffer's remaining bytes at offset (from the image's start); false if the image ends first */
+    private boolean readAt(long offset, ByteBuffer buffer) throws IOException {
+        if (offset < 0 || offset > imageSize || buffer.remaining() > imageSize - offset)
+            return false;
         while (buffer.hasRemaining()) {
             int count = image.read(buffer, offset);
 
             if (count <= 0)
-                throw new ExtractException("Could not read the disc image (is it complete?).");
+                return false;
             offset += count;
         }
-        buffer.flip();
+        return true;
+    }
+
+    /** whether size bytes from the partition's sector lie inside the image */
+    private boolean extentFits(long sector, long size) {
+        long start = partition + sector * SECTOR_SIZE;
+
+        return start >= 0 && start <= imageSize && size <= imageSize - start;
+    }
+
+    /** the root directory's sector and size, with partition set */
+    private long[] findPartition() throws IOException {
+        ByteBuffer sector = ByteBuffer.allocate(SECTOR_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+
+        for (long offset : PARTITION_OFFSETS) {
+            sector.clear();
+            if (!readAt(offset + DESCRIPTOR_SECTOR * SECTOR_SIZE, sector))
+                continue;
+            if (!magicAt(sector, 0) || !magicAt(sector, MAGIC_END_OFFSET))
+                continue;
+            partition = offset;
+            return new long[] {
+                sector.getInt(ROOT_SECTOR_OFFSET) & 0xFFFFFFFFL,
+                sector.getInt(ROOT_SIZE_OFFSET) & 0xFFFFFFFFL,
+            };
+        }
+        throw new ExtractException("The file is not an Xbox disc image (no XDVDFS volume was found in it).");
     }
 
     private static boolean magicAt(ByteBuffer buffer, int offset) {
@@ -135,155 +218,92 @@ final class XisoExtractor {
         return true;
     }
 
-    /** whether a name is one to write in the maps folder: no path, no "." or
-     * "..", and only printable ASCII that every file system takes as a plain
-     * name (a disc's maps folder holds .map files and loading.tga) */
+    /** a directory's table, or null if it is empty, too large or not inside the image */
+    private ByteBuffer readTable(long sector, long size) throws IOException {
+        if (size < ENTRY_HEADER_SIZE || size > MAXIMUM_TABLE_SIZE || !extentFits(sector, size))
+            return null;
+        ByteBuffer table = ByteBuffer.allocate((int) size).order(ByteOrder.LITTLE_ENDIAN);
+        if (!readAt(partition + sector * SECTOR_SIZE, table))
+            return null;
+        table.clear();
+        return table;
+    }
+
+    /** a directory's entries, its tree walked from the table's start with each offset visited once */
+    static List<Entry> listTable(ByteBuffer table) {
+        List<Entry> entries = new ArrayList<>();
+
+        if (table == null)
+            return entries;
+        int size = table.limit();
+        int units = (size + 3) / 4;
+        boolean[] seen = new boolean[units];
+        ArrayDeque<Integer> pending = new ArrayDeque<>();
+        pending.push(0);
+        while (!pending.isEmpty()) {
+            int unit = pending.pop();
+            int offset = unit * 4;
+
+            if (unit >= units || seen[unit] || offset + ENTRY_HEADER_SIZE > size)
+                continue;
+            seen[unit] = true;
+            int left = table.getShort(offset) & 0xFFFF;
+            int right = table.getShort(offset + 2) & 0xFFFF;
+            int nameLength = table.get(offset + 13) & 0xFF;
+            // sector padding, or a name past the table
+            if ((left == 0xFFFF && right == 0xFFFF) || nameLength == 0 || offset + ENTRY_HEADER_SIZE + nameLength > size)
+                continue;
+            if (entries.size() < MAXIMUM_FILES) {
+                byte[] name = new byte[nameLength];
+                for (int index = 0; index < nameLength; index++)
+                    name[index] = table.get(offset + ENTRY_HEADER_SIZE + index);
+                entries.add(new Entry(new String(name, StandardCharsets.ISO_8859_1),
+                    table.getInt(offset + 4) & 0xFFFFFFFFL, table.getInt(offset + 8) & 0xFFFFFFFFL,
+                    (table.get(offset + 12) & DIRECTORY) != 0));
+            }
+            // (0 is no subtree: nothing points back at the root)
+            if (left != 0 && left < units)
+                pending.push(left);
+            if (right != 0 && right < units)
+                pending.push(right);
+        }
+        return entries;
+    }
+
+    /** a name that is safe to create in the maps folder: no separators or control characters, nothing hidden */
     static boolean isPlainName(String name) {
-        if (name.isEmpty() || name.equals(".") || name.equals(".."))
+        if (name.isEmpty() || name.charAt(0) == '.')
             return false;
         for (int index = 0; index < name.length(); index++) {
-            char c = name.charAt(index);
-            if (c < 0x20 || c > 0x7E || "/\\:*?\"<>|".indexOf(c) >= 0)
+            char character = name.charAt(index);
+
+            if (character < 0x20 || character == 0x7F || character == '/' || character == '\\' || character == ':')
                 return false;
         }
         return true;
     }
 
-    /** the partition's volume descriptor: the root directory's sector and size */
-    private long[] findVolume() throws IOException {
-        for (long offset : PARTITION_OFFSETS) {
-            ByteBuffer descriptor = ByteBuffer.allocate(SECTOR_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+    /** maps.partial becomes maps; into a maps folder already there (the app makes one) the files move one by one */
+    private static void moveIntoPlace(List<Entry> files, File partial, File maps) throws IOException {
+        String[] existing = maps.list();
 
-            try {
-                readAt(offset + VOLUME_DESCRIPTOR_OFFSET, descriptor);
-            } catch (IOException e) {
-                continue;
-            }
-            if (!magicAt(descriptor, 0) || !magicAt(descriptor, 0x7EC))
-                continue;
-            partition = offset;
-            return new long[] {
-                descriptor.getInt(20) & 0xFFFFFFFFL, descriptor.getInt(24) & 0xFFFFFFFFL,
-            };
-        }
-        throw new ExtractException("This is not an Xbox disc image.");
-    }
-
-    /** a directory's table, read whole */
-    private ByteBuffer readDirectory(long sector, long size, String what) throws IOException {
-        if (size <= 0 || size > MAXIMUM_DIRECTORY_SIZE)
-            throw new ExtractException(what);
-        ByteBuffer table = ByteBuffer.allocate((int) size).order(ByteOrder.LITTLE_ENDIAN);
-        readAt(partition + sector * SECTOR_SIZE, table);
-        return table;
-    }
-
-    /**
-     * collects the entries of the subtree at offset (4-byte units), files or
-     * directories as asked
-     */
-    private static void walk(ByteBuffer table, long offset, int depth, boolean directories, List<Entry> out,
-        int[] visited) {
-        offset *= 4;
-        /* a malformed table must not loop or run off its end */
-        if (depth > 64 || ++visited[0] > 4096 || offset + ENTRY_HEADER_SIZE > table.limit())
+        if (existing != null && existing.length == 0)
+            maps.delete();
+        if (!maps.exists() && partial.renameTo(maps))
             return;
-        int at = (int) offset;
-        int left = table.getShort(at) & 0xFFFF;
-        int right = table.getShort(at + 2) & 0xFFFF;
-        /* 0xFFFF: padding, an empty directory */
-        if (left == 0xFFFF)
-            return;
-        int nameLength = table.get(at + 13) & 0xFF;
-        if (left != 0)
-            walk(table, left, depth + 1, directories, out, visited);
-        boolean isDirectory = (table.get(at + 12) & ATTRIBUTE_DIRECTORY) != 0;
-        if (at + ENTRY_HEADER_SIZE + nameLength <= table.limit() && nameLength > 0 && isDirectory == directories
-            && out.size() < MAXIMUM_FILES) {
-            byte[] bytes = new byte[nameLength];
-            for (int index = 0; index < nameLength; index++)
-                bytes[index] = table.get(at + ENTRY_HEADER_SIZE + index);
-            String name = new String(bytes, StandardCharsets.ISO_8859_1);
-            /* (as extract-xiso refuses them: no name may leave the folder, and
-            none but a plain file name is written) */
-            if (isPlainName(name))
-                out.add(new Entry(name, table.getInt(at + 4) & 0xFFFFFFFFL, table.getInt(at + 8) & 0xFFFFFFFFL));
-        }
-        if (right != 0)
-            walk(table, right, depth + 1, directories, out, visited);
-    }
-
-    private void extract(File destination, Progress progress) throws IOException {
-        long[] root = findVolume();
-
-        /* the root's maps folder */
-        ByteBuffer table = readDirectory(root[0], root[1], "The disc image's file system is damaged.");
-        List<Entry> directories = new ArrayList<>();
-        walk(table, 0, 0, true, directories, new int[1]);
-        Entry maps = null;
-        for (Entry entry : directories) {
-            if (entry.name.equalsIgnoreCase("maps"))
-                maps = entry;
-        }
-        if (maps == null)
-            throw new ExtractException("The disc image has no maps folder: it is not a Halo disc.");
-
-        /* its files */
-        table = readDirectory(maps.sector, maps.size, "The disc image's maps folder is damaged.");
-        List<Entry> files = new ArrayList<>();
-        walk(table, 0, 0, false, files, new int[1]);
-        long total = 0;
-        boolean hasUi = false;
+        if (!maps.isDirectory() && !maps.mkdirs())
+            throw new ExtractException("The maps folder could not be put in place.");
         for (Entry file : files) {
-            total += file.size;
-            hasUi |= file.name.equalsIgnoreCase("ui.map");
-        }
-        if (!hasUi)
-            throw new ExtractException("The disc image's maps folder has no ui.map: it is not a Halo disc.");
+            File to = new File(maps, file.name);
+            File[] namesakes = maps.listFiles((directory, name) -> name.toLowerCase(Locale.ROOT)
+                .equals(file.name.toLowerCase(Locale.ROOT)));
 
-        File partial = new File(destination, "maps.partial");
-        File finished = new File(destination, "maps");
-        if (!partial.isDirectory() && !partial.mkdirs())
-            throw new ExtractException("Could not create " + partial + ".");
-        ByteBuffer buffer = ByteBuffer.allocateDirect(COPY_BUFFER_SIZE);
-        long done = 0;
-        for (Entry file : files) {
-            File path = new File(partial, file.name);
-            long offset = partition + file.sector * SECTOR_SIZE;
-            long remaining = file.size;
-
-            try (FileOutputStream out = new FileOutputStream(path)) {
-                FileChannel output = out.getChannel();
-
-                while (remaining > 0) {
-                    buffer.clear();
-                    buffer.limit((int) Math.min(remaining, COPY_BUFFER_SIZE));
-                    readAt(offset, buffer);
-                    int count = buffer.remaining();
-                    while (buffer.hasRemaining())
-                        output.write(buffer);
-                    offset += count;
-                    remaining -= count;
-                    done += count;
-                    progress.report(file.name, done, total);
-                }
-            } catch (ExtractException e) {
-                throw new ExtractException("Could not read " + file.name + " from the disc image (is it complete?).");
-            } catch (IOException e) {
-                throw new ExtractException("Could not write " + path + " (is the storage full?).");
+            if (namesakes != null) {
+                for (File namesake : namesakes)
+                    namesake.delete();
             }
-        }
-
-        /* (the maps folder may be there, empty: the app makes it for adb) */
-        if (!finished.isDirectory() && !finished.mkdirs())
-            throw new ExtractException("Could not create " + finished + ".");
-        for (Entry file : files) {
-            File from = new File(partial, file.name);
-            File to = new File(finished, file.name);
-
-            to.delete();
-            if (!from.renameTo(to))
-                throw new ExtractException("Could not move " + file.name + " into " + finished + ".");
+            if (!new File(partial, file.name).renameTo(to))
+                throw new ExtractException("The maps folder could not be put in place.");
         }
         partial.delete();
     }
