@@ -2,6 +2,8 @@
 
 **Halo: Combat Evolved, ported to Windows, Linux and Android.**
 
+[![Join the SilentCartographer Discord](https://invidget.switchblade.xyz/jAaYaXtvyK)](https://discord.gg/jAaYaXtvyK)
+
 SilentCartographer runs the original Xbox Halo: Combat Evolved on a PC,
 a Steam Deck or an Android phone, from your own copy of the game. It is
 built on a decompilation of the Xbox game (build 01.01.14.2342,
@@ -32,6 +34,8 @@ release. These links always give the latest one:
 - **Release** builds are for playing.
 - **Debug** builds stop at the first problem they find and write it to the
   log. Use one to report a problem.
+- **Questions, problems, or people to play with:** join the
+  [SilentCartographer Discord](https://discord.gg/jAaYaXtvyK).
 - **The game updates itself.** At start-up it looks for a newer release and
   asks whether to install it. Refer to "Updates" in
   [port/linux/README.md](port/linux/README.md#updates).
