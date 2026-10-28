@@ -5,10 +5,9 @@
   <img src="port/assets/icon/opence-icon.png" alt="OpenCE" width="128">
 </p>
 
-
 <p align="center">
-  <a href="https://github.com/OpenCommunityEdition/OpenCE/releases/latest"><img src="https://img.shields.io/github/v/release/OpenCommunityEdition/OpenCE?label=Download&style=for-the-badge" alt="Download"></a>
-  <a href="https://discord.gg/9gqcHyr5km"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://github.com/GuvenHuso/SilentCartographer/releases/latest"><img src="https://img.shields.io/github/v/release/GuvenHuso/SilentCartographer?label=Download&style=for-the-badge" alt="Download"></a>
+  <a href="https://discord.gg/jAaYaXtvyK"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
 SilentCartographer runs the original Xbox Halo: Combat Evolved on a PC,
