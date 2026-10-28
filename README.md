@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/GuvenHuso/SilentCartographer/releases/latest"><img src="https://img.shields.io/github/v/release/GuvenHuso/SilentCartographer?label=Download&style=for-the-badge" alt="Download"></a>
-  <a href="https://discord.gg/jAaYaXtvyK"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://discord.gg/ENjNxbJrGb"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
 SilentCartographer runs the original Xbox Halo: Combat Evolved on a PC,
@@ -27,9 +27,9 @@ top, so it has OpenCE's features as they come out. **It plays network
 games with OpenCE**: players of either can join each other's games.
 
 <p align="center">
-  <a href="https://discord.gg/jAaYaXtvyK"><img src="docs/images/discord.png" alt="Join the SilentCartographer Discord" width="128"></a>
+  <a href="https://discord.gg/ENjNxbJrGb"><img src="docs/images/discord.png" alt="Join the SilentCartographer Discord" width="128"></a>
   <br>
-  <a href="https://discord.gg/jAaYaXtvyK"><b>Join the SilentCartographer Discord</b></a>
+  <a href="https://discord.gg/ENjNxbJrGb"><b>Join the SilentCartographer Discord</b></a>
 </p>
 
 ## Download
@@ -48,7 +48,7 @@ latest one:
 - **Debug** builds stop at the first problem they find and write it to the
   log. Use one to report a problem.
 - **Questions, problems, or people to play with:** join the
-  [SilentCartographer Discord](https://discord.gg/jAaYaXtvyK).
+  [SilentCartographer Discord](https://discord.gg/ENjNxbJrGb).
 - **The game updates itself.** At start-up it looks for a newer release and
   asks whether to install it. Refer to "Updates" in
   [port/linux/README.md](port/linux/README.md#updates).
