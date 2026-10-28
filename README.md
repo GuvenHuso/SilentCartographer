@@ -151,7 +151,7 @@ SilentCartographer stands on the work of many people.
   and chester.
 - **SilentCartographer** is maintained by Guven
   ([GuvenHuso](https://github.com/GuvenHuso)).
-- **Art:** the game's icon by ORION; the controller buttons by saulob; the
+- **Art:** the controller buttons by saulob; the
   high-resolution HUD by MrBruh, from reference photos by Aerocatia; icons
   from [Lucide](https://lucide.dev). Refer to [AUTHORS.md](AUTHORS.md).
 - **Fonts:** [Overpass](https://overpassfont.org/) (Red Hat, Delve
