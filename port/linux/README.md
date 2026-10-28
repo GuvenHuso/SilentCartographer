@@ -412,6 +412,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.map_seed` | `true` | `HALO_NET_MAP_SEED` | When you play in the game of another machine: help send its map to players who join without it. HELP SEND MAPS in Settings > Network Setup > Map Sharing. |
 | `network.map_seed_upload` | `256` | `HALO_NET_MAP_SEED_UPLOAD` | When you play in the game of another machine: the most kilobytes per second that the game sends of maps to other players (`16` to `10240`, 10 MB/s). UPLOAD LIMIT in Settings > Network Setup > Map Sharing. |
 | `network.map_download` | `true` | `HALO_NET_MAP_DOWNLOAD` | When you join a game on a Custom Edition map that you do not have: download it from the players of the game. `false`: leave the game and show which map is missing. DOWNLOAD MAPS in Settings > Network Setup > Map Sharing. |
+| `network.map_share_trust_downloads` | `false` | `HALO_NET_MAP_SHARE_TRUST_DOWNLOADS` | Whether the scripts of a map that map sharing downloaded may do all that a map's scripts may. `false`: they cannot change your settings (invert your look, which the game saves in your profile) or turn on a cheat or change a rule of the game (`cheat_deathless_player`, `rider_ejection`, `stun_enable`) that stays after the map; those calls do nothing, and the rest of the map's scripts run. Map sharing marks each map it downloads with a file beside it: `<map>.map.downloaded`. Delete that file to trust that one map. Refer to "Map sharing". |
 | `network.coop_public` | `false` | `HALO_NET_COOP_PUBLIC` | `true`: an online co-op game (Create Game > Internet, a SINGLEPLAYER map) starts as PUBLIC. `false`: it starts as PRIVATE. LISTING in co-op's Server Setup writes its choice here. Refer to "Server browser". |
 | `network.brokers_file` | `"brokers.txt"` | `HALO_NET_BROKERS_FILE` | The file of the public MQTT brokers that let the machines of an invite find each other, and that carry the listings of the server browser: next to `config.toml`, unless a full path. One `host:port` on each line, up to 4; `#` starts a comment. |
 | `network.stun_servers` | Google and Cloudflare | `HALO_NET_STUN` | The public STUN servers (`host:port`, with commas between them) that give the internet address of a machine. |
@@ -908,7 +909,18 @@ downloading off: you then leave a game whose map you do not have.
 
 Maps keep their names. A game is on a map by its name (`hugeass`), and says
 which version of it by the start of the map's hash, so a game always loads
-the version of the host, whatever your copy is called. A downloaded map
+the version of the host, whatever your copy is called.
+
+A downloaded map's scripts may do less than those of a map that you put in
+`custom_maps` yourself. They cannot invert your look (which the game saves
+in your profile), turn on a cheat, or change a rule of the game that stays
+after the map (`cheat_deathless_player`, `rider_ejection`, `stun_enable`):
+those calls do nothing, the rest of the map's scripts run, and `debug.txt`
+says which. Map sharing marks each map that it downloads with a file beside
+it, `<map>.map.downloaded`. Delete that file to trust that one map, or set
+`network.map_share_trust_downloads = true` to trust every downloaded map.
+
+A downloaded map
 takes its own name (`hugeass.map`); if you have another version of that
 name, the download is named with the start of its hash
 (`hugeass_0e2b3ee4.map`), and the menus show it as "Hugeass (2)". A map that

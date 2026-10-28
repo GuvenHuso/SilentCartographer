@@ -1827,6 +1827,8 @@ static void download_unfinish(
 		error(_error_silent, "map sharing: deleted %s (the download cannot be played)",
 			download->files[index].final_path);
 		DeleteFileA(download->files[index].final_path);
+		if (download->files[index].kind == _map_share_file_map)
+			map_share_downloaded_mark(download->files[index].final_path, FALSE);
 	}
 	custom_edition_maps_look_again();
 }
@@ -1857,6 +1859,9 @@ static void download_finish(
 		}
 		if (!csstrcasecmp(map_share_globals.kept_part, file->part_path))
 			map_share_globals.kept_part[0] = 0;
+		/* (its scripts held to what a downloaded map's may do) */
+		if (file->kind == _map_share_file_map)
+			map_share_downloaded_mark(file->final_path, TRUE);
 		/* (its hash known: its version is not read again) */
 		map_share_map_hash_remember(file->final_path, file->hash);
 	}

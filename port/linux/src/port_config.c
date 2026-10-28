@@ -438,6 +438,13 @@ static const struct config_setting config_settings[] =
 		"download it (and the resource maps it needs) from the game's players\n"
 		"into custom_maps, if its host shares it (network.map_share); false\n"
 		"leaves the game, saying which map is missing." },
+	{ "network.map_share_trust_downloads", _config_boolean, "false", "HALO_NET_MAP_SHARE_TRUST_DOWNLOADS",
+		_environment_value, _platform_all,
+		"Whether the scripts of a map that map sharing downloaded may do all a\n"
+		"map's may. false: they may not change the player's settings (invert\n"
+		"the look) or the game's cheats and rules that stay after the map;\n"
+		"those calls do nothing. A downloaded map has a file beside it named\n"
+		"for it and .downloaded; deleting that file trusts that map alone." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"Whether an online co-op game (Create Game > Internet, a SINGLEPLAYER\n"
 		"map) starts as PUBLIC or, false, PRIVATE: Server Setup's LISTING in\n"

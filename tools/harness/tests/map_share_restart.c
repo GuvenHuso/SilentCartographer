@@ -155,6 +155,19 @@ static boolean DeleteFileA(char const *path)
 	return TRUE;
 }
 
+/* (map_share_files.c's: a downloaded map marked so by a file beside it, and
+the mark deleted with it) */
+static void map_share_downloaded_mark(char const *path, boolean downloaded)
+{
+	char mark[MAP_SHARE_PATH_SIZE];
+
+	snprintf(mark, sizeof(mark), "%s.downloaded", path);
+	if (downloaded)
+		fake_create(mark);
+	else
+		DeleteFileA(mark);
+}
+
 /* (map_share_files.c's: a finished download's hash kept) */
 static void map_share_map_hash_remember(char const *path, byte const *hash)
 {
@@ -420,6 +433,8 @@ int main(int argc, char **argv)
 			"a download that can be played was not left in custom_maps");
 		CHECK(!fake_exists("d:\\custom_maps\\bitmaps.map.part"), "a part file was left");
 		CHECK(fake_looked_again == 1, "the map lists looked again %d times", fake_looked_again);
+		CHECK(fake_exists("d:\\custom_maps\\hugeass_0e2b3ee4.map.downloaded"), "the downloaded map was not marked downloaded");
+		CHECK(!fake_exists("d:\\custom_maps\\bitmaps.map.downloaded"), "a resource map was marked downloaded");
 		return 0;
 	}
 	/* one that cannot is deleted again, and nothing it did not bring */
@@ -432,6 +447,7 @@ int main(int argc, char **argv)
 		CHECK(!fake_exists("d:\\custom_maps\\hugeass_0e2b3ee4.map"), "a map that cannot be played was left");
 		CHECK(!fake_exists("d:\\custom_maps\\bitmaps.map"), "a resource map of a map that cannot be played was left");
 		CHECK(fake_exists("d:\\custom_maps\\sounds.map"), "a file the download did not bring was deleted");
+		CHECK(!fake_exists("d:\\custom_maps\\hugeass_0e2b3ee4.map.downloaded"), "the mark of a deleted map was left");
 		CHECK(fake_looked_again == 2, "the map lists did not look again once the files were deleted (%d times)",
 			fake_looked_again);
 		return 0;
@@ -448,6 +464,7 @@ int main(int argc, char **argv)
 		CHECK(!fake_exists("d:\\custom_maps\\hugeass_0e2b3ee4.map"), "the files put in custom_maps were left");
 		CHECK(fake_exists("d:\\custom_maps\\bitmaps.map"), "the file that was there was deleted");
 		CHECK(fake_exists("d:\\custom_maps\\bitmaps.map.part"), "the part file not put there was deleted");
+		CHECK(!fake_exists("d:\\custom_maps\\hugeass_0e2b3ee4.map.downloaded"), "the mark of a deleted map was left");
 		CHECK(fake_looked_again == 1, "the map lists did not look again once the files were deleted (%d times)",
 			fake_looked_again);
 		return 0;

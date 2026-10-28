@@ -32,6 +32,12 @@ NEGATIVE_CONTROLS = {
                         "finish-unplayable"),
     "put-there-left": (("\t\t\tdownload_unfinish(index);\n", ""), "download_finish", "finish-refused"),
     "deleted-what-was-there": (("index < count", "index <= count"), "download_unfinish", "finish-refused"),
+    "map-not-marked": (("map_share_downloaded_mark(file->final_path, TRUE);", ";"), "download_finish",
+                       "finish-playable"),
+    "resource-map-marked": (("if (file->kind == _map_share_file_map)\n\t\t\tmap_share_downloaded_mark",
+                             "if (TRUE)\n\t\t\tmap_share_downloaded_mark"), "download_finish", "finish-playable"),
+    "mark-left": (("map_share_downloaded_mark(download->files[index].final_path, FALSE);", ";"), "download_unfinish",
+                  "finish-unplayable"),
 }
 
 FUNCTIONS = ("get_long", "remote_piece_had", "remote_pieces_forget", "download_file_close", "request_remove",

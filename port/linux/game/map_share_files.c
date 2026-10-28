@@ -37,6 +37,8 @@ hashing thread allocates what the game's thread frees) */
 
 /* (p2p_crypto.c's) */
 void p2p_blake2b_256(const void *data, unsigned long size, unsigned char *digest);
+/* (port_config.c's) */
+int config_boolean(const char *name);
 
 /* ---------- constants */
 
@@ -919,4 +921,56 @@ void map_share_files_update(
 		if (hash_job_start(_hash_job_name, path, NONE))
 			return;
 	}
+}
+
+/* the path of the file that marks the map at `path` downloaded; FALSE when
+it would not fit */
+static boolean downloaded_mark_path(
+	char const *path,
+	char *mark_path)
+{
+	if (csstrlen(path) + sizeof(MAP_SHARE_DOWNLOADED_SUFFIX) > MAP_SHARE_PATH_SIZE)
+		return FALSE;
+	csprintf(mark_path, "%s%s", path, MAP_SHARE_DOWNLOADED_SUFFIX);
+	return TRUE;
+}
+
+void map_share_downloaded_mark(
+	char const *path,
+	boolean downloaded)
+{
+	char mark_path[MAP_SHARE_PATH_SIZE];
+	FILE *stream;
+
+	if (!downloaded_mark_path(path, mark_path))
+		return;
+	if (!downloaded)
+	{
+		DeleteFileA(mark_path);
+		return;
+	}
+	stream = fopen(mark_path, "wb");
+	if (!stream)
+	{
+		error(_error_silent, "map sharing: could not mark %s downloaded", path);
+		return;
+	}
+	fputs("This map was downloaded by map sharing: its scripts may not change the player's\n"
+		"settings or the game's cheats. Delete this file to trust it as a map of your own.\n", stream);
+	fclose(stream);
+}
+
+boolean map_share_downloaded(
+	char const *path)
+{
+	char mark_path[MAP_SHARE_PATH_SIZE];
+	FILE *stream;
+
+	if (config_boolean("network.map_share_trust_downloads") || !downloaded_mark_path(path, mark_path))
+		return FALSE;
+	stream = fopen(mark_path, "rb");
+	if (!stream)
+		return FALSE;
+	fclose(stream);
+	return TRUE;
 }

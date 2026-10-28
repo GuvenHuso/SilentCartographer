@@ -509,10 +509,12 @@ static boolean custom_edition_cache_tags_validate(
 build's: their resource offsets combined, their bytes converted, then
 checked as an Xbox map's tags are; then their bitmaps checked, their
 scripts given this build's functions and their models converted, all from
-tags the checks passed. */
+tags the checks passed; a map map sharing `downloaded`'s scripts held to
+what a downloaded map's may do. */
 static boolean custom_edition_cache_tags_convert(
 	uint8_t *tag_cache,
-	struct custom_edition_load_report const *report)
+	struct custom_edition_load_report const *report,
+	boolean downloaded)
 {
 	uint32_t loaded_bytes = report->tag_data_bytes + report->resource_tag_bytes;
 	struct custom_edition_conversion_report conversion;
@@ -596,7 +598,7 @@ static boolean custom_edition_cache_tags_convert(
 	return custom_edition_cache_tags_validate(tag_cache, report) &&
 		custom_edition_bitmaps_verify(tag_cache, loaded_bytes) &&
 		custom_edition_reordered_bitmaps_find(tag_cache, loaded_bytes) &&
-		custom_edition_scripts_convert(tag_cache, loaded_bytes) &&
+		custom_edition_scripts_convert(tag_cache, loaded_bytes, downloaded) &&
 		custom_edition_cache_models_convert(tag_cache, report);
 }
 
@@ -1040,7 +1042,7 @@ struct cache_file_tag_header *custom_edition_cache_tags_load(
 		return NULL;
 	}
 	custom_edition_cache_report_log(&report);
-	if (!custom_edition_cache_tags_convert(tag_cache, &report))
+	if (!custom_edition_cache_tags_convert(tag_cache, &report, map_share_downloaded(path)))
 	{
 		error(_error_silent, "custom edition: cannot run '%s'", path);
 		custom_edition_sounds_dispose();

@@ -25,6 +25,14 @@ Both builds number their value types alike: every call in the maps examined
 has the same types here (docs/custom_edition_caches.md, and
 tools/custom_edition_script_names.py checks a map's calls against this
 build's tables).
+
+A map that map sharing downloaded (map_share_downloaded) is held to less than
+one the player put in custom_maps: what hs.c lets every map's scripts do
+(hs_function_allowed_in_maps, hs_external_global_settable_in_maps) includes
+a little the campaign needs that reaches past the map, and a downloaded
+map's calls and sets of those (downloaded_map_functions_refused,
+downloaded_map_globals_refused) do nothing, as a missing one's do: its
+other scripts run.
 */
 
 /* ---------- headers */
@@ -60,6 +68,25 @@ designator (hs_find_global_by_name) */
 /* missing names are logged up to this many times */
 #define MAXIMUM_MISSING_NAME_MESSAGES 8
 
+/* ---------- globals */
+
+/* what a downloaded map's scripts may not call: it saves the player's
+profile with its look inverted (a10 asks the player, and every map may) */
+static char const *const downloaded_map_functions_refused[] =
+{
+	"player0_look_invert_pitch",
+};
+
+/* the engine globals a downloaded map's scripts may not set: a cheat and
+gameplay's rules, which stay as a map sets them for the maps after it (the
+camera's clip distances and the weather it may still set) */
+static char const *const downloaded_map_globals_refused[] =
+{
+	"cheat_deathless_player",
+	"rider_ejection",
+	"stun_enable",
+};
+
 /* ---------- structures */
 
 struct scripts_conversion
@@ -76,6 +103,10 @@ struct scripts_conversion
 	/* what is missing and has no harmless value: the map can't run */
 	long missing_count;
 	long made_inert;
+	/* the map was downloaded (map_share_downloaded), and what of its
+	scripts that was refused */
+	boolean downloaded;
+	long refused;
 };
 
 /* ---------- private code */
@@ -115,37 +146,80 @@ static boolean missing_value(
 }
 
 /* The node (a call, or a reference to an engine global) made a constant of
-its own type, for the missing function or global `name`; logged, and
-counted as missing when its type has no harmless value. */
+its own type, for the missing function or global `name`, or the one a
+downloaded map may not use (`refused`); logged, and counted as missing when
+its type has no harmless value. */
 static void node_make_inert(
 	struct scripts_conversion *conversion,
 	struct hs_syntax_node *node,
 	char const *kind,
-	char const *name)
+	char const *name,
+	boolean refused)
 {
+	char const *why = refused ? "which a downloaded map may not use" : "which this build does not have";
 	long value;
 
 	if (!missing_value(conversion, node->type, &value))
 	{
 		if (conversion->missing_count < MAXIMUM_MISSING_NAME_MESSAGES)
-		{
-			error(_error_silent, "custom edition: the scripts use the %s '%s', which this build does not have", kind,
-				name);
-		}
+			error(_error_silent, "custom edition: the scripts use the %s '%s', %s", kind, name, why);
 		conversion->missing_count++;
 		return;
 	}
+	if (refused)
+		conversion->refused++;
 	if (conversion->made_inert < MAXIMUM_MISSING_NAME_MESSAGES)
-	{
-		error(_error_silent, "custom edition: the scripts use the %s '%s', which this build does not have: it does nothing",
-			kind, name);
-	}
+		error(_error_silent, "custom edition: the scripts use the %s '%s', %s: it does nothing", kind, name, why);
 	/* (still permanent: hs_node_gc frees a scenario node that isn't, and the
 	script then halts on it as "unused or changed") */
 	node->flags = FLAG(_hs_syntax_node_primitive_bit) | (node->flags & FLAG(_hs_syntax_node_permanent_bit));
 	node->constant_type = node->type;
 	node->data = value;
 	conversion->made_inert++;
+}
+
+/* whether `name` is one of `names` (as the scripts' names are, ignoring
+case) */
+static boolean name_listed(
+	char const *name,
+	char const *const *names,
+	long count)
+{
+	long index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (!csstrcasecmp(name, names[index]))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* whether a downloaded map's scripts may not call the function `name` */
+static boolean downloaded_map_function_refused(
+	struct scripts_conversion const *conversion,
+	char const *name)
+{
+	return conversion->downloaded &&
+		name_listed(name, downloaded_map_functions_refused, NUMBEROF(downloaded_map_functions_refused));
+}
+
+/* whether a downloaded map's scripts may not set the engine global `name` */
+static boolean downloaded_map_global_refused(
+	struct scripts_conversion const *conversion,
+	char const *name)
+{
+	return conversion->downloaded && name &&
+		name_listed(name, downloaded_map_globals_refused, NUMBEROF(downloaded_map_globals_refused));
+}
+
+/* whether the node refers to an engine global (not one of the scenario's) */
+static boolean engine_global_external(
+	struct hs_syntax_node const *node)
+{
+	return TEST_FLAG(node->flags, _hs_syntax_node_primitive_bit) &&
+		TEST_FLAG(node->flags, _hs_syntax_node_global_bit) &&
+		TEST_FLAG(node->short_value, HS_EXTERNAL_GLOBAL_DESIGNATOR_BIT);
 }
 
 /* whether the node refers to an engine global this build does not have */
@@ -174,6 +248,7 @@ static boolean function_call_convert(
 {
 	long name_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(call->data);
 	struct hs_syntax_node *name_node;
+	struct hs_syntax_node const *variable;
 	char const *name;
 	short function_index;
 
@@ -188,20 +263,25 @@ static boolean function_call_convert(
 		return FALSE;
 	}
 	function_index = hs_find_function_by_name(name);
-	if (function_index == NONE)
+	variable = !strcmp(name, "set") && name_node->next_node_index != NONE &&
+		DATUM_INDEX_TO_ABSOLUTE_INDEX(name_node->next_node_index) < conversion->node_count ?
+		&conversion->nodes[DATUM_INDEX_TO_ABSOLUTE_INDEX(name_node->next_node_index)] :
+		NULL;
+	if (function_index == NONE || downloaded_map_function_refused(conversion, name))
 	{
-		node_make_inert(conversion, call, "function", name);
+		node_make_inert(conversion, call, "function", name, function_index != NONE);
 	}
-	/* (a set of an engine global this build lacks writes nothing: its first
-	argument is the global, which the interpreter would write by its index) */
-	else if (!strcmp(name, "set") && name_node->next_node_index != NONE &&
-		DATUM_INDEX_TO_ABSOLUTE_INDEX(name_node->next_node_index) < conversion->node_count &&
-		engine_global_missing(conversion,
-			&conversion->nodes[DATUM_INDEX_TO_ABSOLUTE_INDEX(name_node->next_node_index)]))
+	/* (a set of an engine global this build lacks, or a downloaded map may
+	not set, writes nothing: its first argument is the global, which the
+	interpreter would write by its index) */
+	else if (variable && engine_global_missing(conversion, variable))
 	{
-		node_make_inert(conversion, call, "engine global",
-			script_string_get(conversion,
-				conversion->nodes[DATUM_INDEX_TO_ABSOLUTE_INDEX(name_node->next_node_index)].string_offset));
+		node_make_inert(conversion, call, "engine global", script_string_get(conversion, variable->string_offset), FALSE);
+	}
+	else if (variable && engine_global_external(variable) &&
+		downloaded_map_global_refused(conversion, script_string_get(conversion, variable->string_offset)))
+	{
+		node_make_inert(conversion, call, "engine global", script_string_get(conversion, variable->string_offset), TRUE);
 	}
 	else if (call->function_index != function_index)
 	{
@@ -228,7 +308,7 @@ static boolean engine_global_convert(
 	designator = hs_find_global_by_name(name);
 	if (designator == NONE || !TEST_FLAG(designator, HS_EXTERNAL_GLOBAL_DESIGNATOR_BIT))
 	{
-		node_make_inert(conversion, reference, "engine global", name);
+		node_make_inert(conversion, reference, "engine global", name, FALSE);
 	}
 	else if (reference->short_value != designator)
 	{
@@ -244,7 +324,8 @@ static boolean scenario_scripts_convert(
 	byte *tag_cache,
 	unsigned long loaded_bytes,
 	int32_t tag_index,
-	struct scenario *scenario)
+	struct scenario *scenario,
+	boolean downloaded)
 {
 	struct scripts_conversion conversion = { 0 };
 	uint32_t syntax_bytes = 0;
@@ -256,6 +337,7 @@ static boolean scenario_scripts_convert(
 	{
 		return TRUE;
 	}
+	conversion.downloaded = downloaded;
 	conversion.strings = custom_edition_cache_data_get(tag_cache, loaded_bytes, &scenario->hs_string_constants, &string_bytes);
 	conversion.string_bytes = conversion.strings ? string_bytes : 0;
 	/* (every string in the data ends with a 0, so the last byte is one, read
@@ -320,6 +402,13 @@ static boolean scenario_scripts_convert(
 		"custom edition: %ld script calls and %ld engine global references were given this build's index",
 		conversion.functions_renumbered,
 		conversion.globals_renumbered);
+	if (conversion.refused)
+	{
+		error(
+			_error_silent,
+			"custom edition: this map was downloaded by map sharing: %ld of its scripts' calls and sets that a downloaded map may not make do nothing (network.map_share_trust_downloads)",
+			conversion.refused);
+	}
 	if (conversion.missing_count)
 	{
 		error(
@@ -336,14 +425,15 @@ static boolean scenario_scripts_convert(
 
 boolean custom_edition_scripts_convert(
 	byte *tag_cache,
-	unsigned long loaded_bytes)
+	unsigned long loaded_bytes,
+	boolean downloaded)
 {
 	struct scenario *scenario;
 	int32_t tag_index = NONE;
 
 	while ((scenario = custom_edition_cache_tag_next(tag_cache, loaded_bytes, SCENARIO_TAG, sizeof(*scenario), &tag_index)) != NULL)
 	{
-		if (!scenario_scripts_convert(tag_cache, loaded_bytes, tag_index, scenario))
+		if (!scenario_scripts_convert(tag_cache, loaded_bytes, tag_index, scenario, downloaded))
 		{
 			return FALSE;
 		}

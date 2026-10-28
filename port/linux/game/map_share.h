@@ -45,12 +45,27 @@ enum
 	MAP_SHARE_PATH_SIZE = 256,
 };
 
+/* the end of the name of the file beside a map that marks it downloaded
+(map_share_downloaded) */
+#define MAP_SHARE_DOWNLOADED_SUFFIX ".downloaded"
+
 /* ---------- prototypes/MAP_SHARE_FILES.C */
 
 /* Whether a map's file name (without its extension) ends in _ and
 MAP_SHARE_NAME_DIGITS lowercase hexadecimal digits: named for its hash. */
 boolean map_share_name_hashed(
 	char const *name);
+/* A map file map sharing downloaded is marked so, by a file beside it of its
+name and MAP_SHARE_DOWNLOADED_SUFFIX, which stays until it is deleted: a
+downloaded map's scripts may do less than a map the player put there
+(custom_edition_scripts.c). map_share_downloaded_mark makes or deletes the
+mark; map_share_downloaded says whether the map at `path` has it, and FALSE
+for every map with network.map_share_trust_downloads. */
+void map_share_downloaded_mark(
+	char const *path,
+	boolean downloaded);
+boolean map_share_downloaded(
+	char const *path);
 /* Whether a map's name (from another machine's level name) is only a file
 name of the custom_maps folder: printable ASCII, no separator or character
 a file system refuses, no dot or space at either end (so never "." or
