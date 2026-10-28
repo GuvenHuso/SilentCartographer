@@ -215,7 +215,10 @@ under the host's vehicle), which a client no longer reports and the host
 took from no one. One made in the game, a tripmine, is at an index of its
 own on each machine: the host takes a client's hit on its copy as one on the
 host's nearest where the client had it, and a client the host's damage to
-one as damage to its own copy nearest the damage.
+one as damage to its own copy nearest the damage; version 30001 sends with
+the game's settings whether co-op's players hurt their AI allies (Server
+Setup's ALLY FRIENDLY FIRE, bit 1 of `cooperative_flags`: the host then
+deals the players' hits of them no damage).
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the
