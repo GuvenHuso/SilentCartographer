@@ -354,6 +354,13 @@ short fix_dead_zone(
 	short value,
 	short dead_range)
 {
+	/* port: a dead range of the whole travel (a stick's dead zone setting of
+	100%) reads nothing, -32768 too */
+	if (dead_range >= SHORT_MAX)
+	{
+		return 0;
+	}
+
 	if (value > dead_range)
 	{
 		return (short)((value - dead_range) * SHORT_MAX / (SHORT_MAX - dead_range));

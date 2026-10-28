@@ -139,7 +139,7 @@ static float mouse_sensitivity(void)
 /* the game's own dead zone of each stick, of 32767 (source/input/input_xbox.c) */
 #define STICK_DEAD_RANGE 9000
 /* the most a stick's dead zone setting takes, in percent */
-#define STICK_DEAD_ZONE_MAXIMUM 90
+#define STICK_DEAD_ZONE_MAXIMUM 100
 
 /* the deflection a stick reads as none, of 32767, for the game's sticks
 (stick 0 the left, 1 the right): input.left_stick_dead_zone and

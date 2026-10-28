@@ -132,7 +132,8 @@ void pc_menu_game_data_function_invoke(struct widget_instance *widget, long func
 
 /* ---------- constants */
 
-#define MAXIMUM_STRINGS 64
+/* (menu_tags.c's: struct pc_menu_setting is shared) */
+#define MAXIMUM_STRINGS 128
 /* the PC version's custom activation event (this engine never sends it) */
 #define EVENT_CUSTOM_ACTIVATION 32
 #define BUTTON_A 0

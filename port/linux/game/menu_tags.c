@@ -92,7 +92,8 @@ texts (SETTINGS, and END GAME or FRIENDLY FIRE) */
 #define UNICODE_STRING_LIST_TAG 'ustr'
 #define FONT_TAG 'font'
 #define SOUND_TAG 'snd!'
-#define MAXIMUM_STRINGS 64
+/* (a spinner's choices: each percent of a stick's dead zone, and its default) */
+#define MAXIMUM_STRINGS 128
 #define MAXIMUM_TEXT 2048
 /* the size of a menu bitmap's D3D texture, which only stands for its PNG */
 #define PLACEHOLDER_SIZE 4
