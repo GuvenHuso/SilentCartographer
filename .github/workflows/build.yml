@@ -264,8 +264,10 @@ jobs:
     # The six builds (and the Windows builds' PDBs) as a release, tagged
     # build-<run number> and marked latest
     # (every file keeps its name from release to release, for the README's
-    # latest/download links); then all but the newest five build-* releases
-    # go, tags and all. Only for main, and only when every platform built.
+    # latest/download links), its notes every change since the release
+    # before (tools/release_notes.py), which go to Discord too; then all but
+    # the newest five build-* releases go, tags and all. Only for main, and
+    # only when every platform built.
     needs: [linux, android, windows]
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
@@ -278,6 +280,12 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # (the whole history and its tags: the notes list the commits since
+      # the release before)
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           pattern: halo-*
@@ -294,18 +302,23 @@ jobs:
 
       - name: Publish
         id: publish
-        env:
-          MESSAGE: ${{ github.event.head_commit.message }}
-          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           tag="build-$GITHUB_RUN_NUMBER"
-          subject="$(printf '%s' "${MESSAGE:-manual run}" | head -n 1)"
-          printf '%s\n\nCommit: %s\nBuild: %s\n\nThe release builds are for playing; the debug builds stop at the first failed assertion and log it.\n' \
-            "$subject" "$COMMIT_URL" "$RUN_URL" > notes.md
+          python3 tools/release_notes.py notes "$tag" "$GITHUB_SHA" > notes.md
+          cat notes.md
           gh release create "$tag" release/*.zip --target "$GITHUB_SHA" --latest \
             --title "Build $GITHUB_RUN_NUMBER (${GITHUB_SHA:0:7})" --notes-file notes.md
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # The release's changes to the Discord channel of the
+      # DISCORD_RELEASES_WEBHOOK secret (nothing without it); each build's
+      # result goes to DISCORD_WEBHOOK's (notify). A post that fails is a
+      # warning: the release is out.
+      - name: Announce on Discord
+        continue-on-error: true
+        env:
+          DISCORD_RELEASES_WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+        run: python3 tools/release_notes.py discord "${{ steps.publish.outputs.tag }}" "$GITHUB_SHA"
 
       # The Windows builds' executables and PDBs to Sentry, which turns the
       # crash reports of these builds (port/windows/src/win32_crash.c) into
