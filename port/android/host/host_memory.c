@@ -9,7 +9,8 @@ references and so also live there. The host therefore claims only what the
 guest needs, when it needs it:
 
 - the Xbox contiguous window at 0x80000000 and the image's own range, at
-  start-up (both at fixed addresses the guest was built for);
+  start-up (both at fixed addresses the guest was built for), and the
+  Custom Edition tag cache at 0x40440000 if it is free then;
 - pools of address space for the guest's other mappings (malloc arenas,
   thread stacks), reserved in free gaps below 4 GB as they fill up.
 
@@ -575,6 +576,33 @@ int host_memory_fixed_unavailable(void)
 	return !fixed_reserved && fixed_error != 0;
 }
 
+/* The Custom Edition tag cache at its fixed address, which the guest maps
+when game.custom_edition is on (port/linux/src/xbox_memory.c): reserved
+with the fixed ranges, before the process's other low mappings can take it.
+The game runs without it, with no Custom Edition maps, so ART's spaces are
+never reclaimed for it. */
+static int custom_edition_reserved;
+
+static void reserve_custom_edition(const char *when)
+{
+	if (custom_edition_reserved)
+		return;
+	if (reserve(HALO_GUEST_CUSTOM_EDITION_BASE, HALO_GUEST_CUSTOM_EDITION_SIZE, 0) == 0)
+	{
+		custom_edition_reserved = 1;
+		return;
+	}
+	host_logf(HOST_LOG_WARN, "cannot reserve the Custom Edition tag cache at %08llx-%08llx %s (%s): "
+		"Custom Edition maps cannot run", (unsigned long long)HALO_GUEST_CUSTOM_EDITION_BASE,
+		(unsigned long long)HALO_GUEST_CUSTOM_EDITION_BASE + HALO_GUEST_CUSTOM_EDITION_SIZE, when, strerror(errno));
+}
+
+static int in_custom_edition(uint64_t address, uint64_t size)
+{
+	return custom_edition_reserved && in_range(address, size, HALO_GUEST_CUSTOM_EDITION_BASE,
+		(uint64_t)HALO_GUEST_CUSTOM_EDITION_BASE + HALO_GUEST_CUSTOM_EDITION_SIZE);
+}
+
 /* For testing the reclaim on any device: with the system property
 debug.halo.art_overlap set (adb shell setprop debug.halo.art_overlap idle,
 or busy), a mapping named as ART's large object space is put over the fixed
@@ -634,6 +662,7 @@ void host_memory_reserve_early(void)
 	simulate_art_overlap();
 	if (reserve_fixed("at start-up (JNI_OnLoad)") == 0)
 		host_logf(HOST_LOG_INFO, "reserved the Xbox memory window and the image range at start-up");
+	reserve_custom_edition("at start-up (JNI_OnLoad)");
 }
 
 int host_memory_initialize(uint32_t base, uint32_t size)
@@ -648,6 +677,7 @@ int host_memory_initialize(uint32_t base, uint32_t size)
 		errno = fixed_error;
 		return -1;
 	}
+	reserve_custom_edition("when the image loaded");
 	window_base = HALO_GUEST_WINDOW_BASE;
 	window_end = window_base + HALO_GUEST_WINDOW_SIZE;
 	image_base = base;
@@ -753,7 +783,8 @@ int host_low_owns(uintptr_t address, size_t size)
 {
 	int result;
 
-	if (in_range(address, size, window_base, window_end) || in_range(address, size, image_base, image_end))
+	if (in_range(address, size, window_base, window_end) || in_range(address, size, image_base, image_end) ||
+		in_custom_edition(address, size))
 		return 1;
 	pthread_mutex_lock(&memory_lock);
 	result = pool_of(address, size) != NULL;
@@ -808,7 +839,7 @@ long host_guest_munmap(uint64_t address, uint64_t size)
 
 	if (address + length > LOW_LIMIT)
 		return -EINVAL;
-	if (in_range(address, length, window_base, window_end))
+	if (in_range(address, length, window_base, window_end) || in_custom_edition(address, length))
 	{
 		mmap((void *)address, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
 		return 0;

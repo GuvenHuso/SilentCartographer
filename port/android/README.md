@@ -96,6 +96,7 @@ To install the data from a computer:
 | Item | Location in `/sdcard/Android/data/com.halo.decomp/files` |
 | --- | --- |
 | Saved games (`z:\` and `u:\`) | `save` |
+| Halo Custom Edition maps, with Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` (`docs/custom_edition_caches.md`) | `custom_maps`, which the game makes at its first start: `adb push <map>.map /sdcard/Android/data/com.halo.decomp/files/custom_maps/` |
 | Mods (`docs/mods.md`) | `mods`: `adb push <mod folder> /sdcard/Android/data/com.halo.decomp/files/mods/`; the main menu's Mods orders them and turns them off |
 | Log | `debug.txt` |
 | Settings | `config.toml` |
@@ -403,6 +404,12 @@ Thus:
 If the addresses are not available, the game shows a message, and writes
 the mappings below 4 GB to `memory_map.txt` in the data folder and to the
 log.
+
+Halo Custom Edition maps need `0x40440000` to `0x41b40000` too, where
+their tags are linked. `JNI_OnLoad` reserves that range with the others,
+but never takes it from ART. If ART's spaces cover it, the game starts
+without Custom Edition maps, and the log shows
+`cannot reserve the Custom Edition tag cache`.
 
 To test the reclaim on any device, set a system property before you start
 the game. The app then puts a stand-in for ART's large object space over

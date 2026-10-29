@@ -36,6 +36,12 @@ keeps its heaps low in the address space and fills it upwards */
 #define HALO_GUEST_WINDOW_BASE 0x80000000u
 #define HALO_GUEST_WINDOW_SIZE 0x08000000u
 
+/* the Halo Custom Edition tag cache, whose maps' tags are linked to it
+(CUSTOM_EDITION_TAG_CACHE_ADDRESS and _BYTES, port/linux/game/cache_file_formats.h):
+the host reserves it with the ranges above, the guest maps it */
+#define HALO_GUEST_CUSTOM_EDITION_BASE 0x40440000u
+#define HALO_GUEST_CUSTOM_EDITION_SIZE 0x01700000u
+
 #define HALO_GUEST_MAGIC 0x4f4c4148u /* 'HALO' */
 #define HALO_GUEST_ABI_VERSION 2
 
