@@ -391,7 +391,9 @@ jobs:
     # A Discord embed for the run, to the DISCORD_WEBHOOK secret (nothing
     # without it): green when every platform built, red when one did not,
     # with each platform's result, this run's release (main only), and links
-    # to the latest release's builds.
+    # to this run's builds: its release's, else the run's artifacts (a
+    # branch's build is not the latest release, which has none of its
+    # changes).
     needs: [linux, android, windows, release]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
@@ -430,12 +432,15 @@ jobs:
           else
             title="Build failed"; color=15548997
           fi
-          latest="$SERVER/$REPOSITORY/releases/latest"
-          downloads="[Linux]($latest/download/halo-linux-release.zip) · [Windows]($latest/download/halo-windows-release.zip) · [Android]($latest/download/halo-android-release.zip) ([all builds]($latest))"
           if [ -n "$RELEASE_TAG" ]; then
-            release="[$RELEASE_TAG]($SERVER/$REPOSITORY/releases/tag/$RELEASE_TAG)"
+            tag_url="$SERVER/$REPOSITORY/releases/tag/$RELEASE_TAG"
+            assets="$SERVER/$REPOSITORY/releases/download/$RELEASE_TAG"
+            release="[$RELEASE_TAG]($tag_url)"
+            downloads="[Linux]($assets/halo-linux-release.zip) · [Windows]($assets/halo-windows-release.zip) · [Android]($assets/halo-android-release.zip) ([all builds]($tag_url))"
           else
             release="None (only a successful build of main makes one)"
+            # (GitHub gives a run's artifacts only to those signed in)
+            downloads="[This run's page]($RUN_URL): its Artifacts, at the bottom, while signed in to GitHub. (Not the latest release, which has none of this build's changes.)"
           fi
           subject="$(printf '%s' "${MESSAGE:-manual run}" | head -n 1 | cut -c1-200)"
           jq -n \
@@ -451,7 +456,7 @@ jobs:
                 {name: "Windows", value: $windows, inline: true},
                 {name: "Android", value: $android, inline: true},
                 {name: "Release", value: $release},
-                {name: "Latest release builds", value: $downloads}
+                {name: "Downloads of this build", value: $downloads}
               ]
             }]}' > payload.json
           # Discord rate limits webhooks (HTTP 429, with how many seconds to
