@@ -11,8 +11,9 @@
 </p>
 
 SilentCartographer runs the original Xbox Halo: Combat Evolved on a PC,
-a Steam Deck or an Android phone, from your own copy of the game. It is
-built on a decompilation of the Xbox game (build 01.01.14.2342,
+a Steam Deck or an Android phone, from your own copy of the game. It aims to bring experimental features to OpenCE and adds various enhancement whilst being able to support crossplay with OpenCE players.
+
+It is a decomplication of the Xbox game (build 01.01.14.2342,
 `cachebeta.exe`, SHA-256
 `4cc87b45f721270392a96f1674ed2b5cd4a7bb4355faeab4531d1cf1884d9520`): the
 game's own code, compiled for each platform, with a new layer that stands in
