@@ -219,9 +219,8 @@ SCREENS = {
 # halo_stick_dead_range): config.toml's, for every profile, a screen of their
 # own (a category, as Video Setup's), as the controller's screen has room for
 # one more place
-# (0% to 50% in steps of 5, with the game's own, about 27%, in its place)
-DEAD_ZONES = [(f"{percent}%", str(percent)) for percent in range(0, 26, 5)] + [("27% (DEFAULT)", "-1")] \
-    + [(f"{percent}%", str(percent)) for percent in range(30, 51, 5)]
+# (the game's own, about 27%, first, then 0% to 50% in steps of 5)
+DEAD_ZONES = [("DEFAULT", "-1")] + [(f"{percent}%", str(percent)) for percent in range(0, 51, 5)]
 SCREENS["gamepad_setup"]["categories"] = [
     ("STICK DEAD ZONES:", "gamepad_setup/dead_zones",
      "How far each stick moves before it does\nanything."),
