@@ -70,6 +70,12 @@ SCREENS = {
             ("RESOLUTION SCALING:", "display.resolution_scaling",
              [("NATIVE", "native"), ("75%", "75%"), ("50%", "50%"), ("25%", "25%"), ("ORIGINAL", "original")],
              "Native draws at the resolution, 75% to 25% that\npart each way; Original, the Xbox's 480 lines.", None),
+            # (the same setting's other values: port/linux/game/menu_functions.c
+            # greys the row of the two whose value is not the setting's)
+            ("RENDER RESOLUTION:", "display.resolution_scaling",
+             [("480P", "480p"), ("720P", "720p"), ("1080P", "1080p"), ("1440P", "1440p"), ("2160P", "2160p")],
+             "Draw that many lines, scaled to the display.\nChoosing one greys Resolution Scaling, and back.",
+             "android web", "render_resolution"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Wait for the display between frames, so that the\npicture never tears.", None),
             ("FRAME RATE LIMIT:", "display.max_fps",

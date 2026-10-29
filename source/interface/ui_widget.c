@@ -5634,6 +5634,8 @@ static void widget_instance_render_spinner_list(
 						color_alpha = color.alpha;
 					}
 				}
+				/* port: a colour of the port's for the text, as a text box's */
+				pc_menu_text_color(widget, &color);
 				color.alpha = text_alpha_modifier * color_alpha;
 				if (TEST_FLAG(
 						definition->text_box_flags,

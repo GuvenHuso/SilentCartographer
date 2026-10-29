@@ -181,13 +181,38 @@ static int anti_aliasing(void)
 
 /* display.resolution_scaling's part of the resolution each way: 1 for
 "native", 0.75, 0.5 or 0.25 for "75%", "50%" or "25%", 0 for "original" (the
-Xbox's 480 lines) */
-static float resolution_scaling_part(void)
+Xbox's 480 lines); and the lines drawn for "480p" to "2160p", else 0 */
+static float resolution_scaling_part(long *lines)
 {
 	const char *setting = config_string("display.resolution_scaling");
+	size_t length = strlen(setting);
 
+	*lines = 0;
+	if (length > 1 && setting[length - 1] == 'p')
+	{
+		*lines = atol(setting);
+		*lines = *lines < SCREEN_HEIGHT ? SCREEN_HEIGHT : *lines > 4320 ? 4320 : *lines;
+	}
 	return !strcmp(setting, "original") ? 0.0f : !strcmp(setting, "75%") ? 0.75f :
 		!strcmp(setting, "50%") ? 0.5f : !strcmp(setting, "25%") ? 0.25f : 1.0f;
+}
+
+/* the scale made smaller, keeping its shape, for targets no larger than the
+GPU's largest (once it is known) */
+static void screen_scale_fit(long width, float scale[2])
+{
+	float fit;
+
+	if (maximum_target_size <= 0 || (width * scale[0] <= (float)maximum_target_size &&
+		SCREEN_HEIGHT * scale[1] <= (float)maximum_target_size))
+	{
+		return;
+	}
+	fit = (float)maximum_target_size / (width * scale[0]);
+	if ((float)maximum_target_size / (SCREEN_HEIGHT * scale[1]) < fit)
+		fit = (float)maximum_target_size / (SCREEN_HEIGHT * scale[1]);
+	scale[0] *= fit;
+	scale[1] *= fit;
 }
 
 static void screen_mode_choose(long *width, float scale[2])
@@ -199,7 +224,8 @@ static void screen_mode_choose(long *width, float scale[2])
 	/* (the window's size last given, for a window that has none: before it
 	opens, or while the app is away) */
 	static int last_width, last_height;
-	float part = resolution_scaling_part();
+	long lines;
+	float part = resolution_scaling_part(&lines);
 	int display_width = 0, display_height = 0;
 
 	*width = config_integer("display.screen_width");
@@ -214,8 +240,15 @@ static void screen_mode_choose(long *width, float scale[2])
 	screen_supersampling = 1.0f;
 	/* display.resolution_scaling: "original" draws the 480 lines, which the
 	display blit scales up; "native" the window's pixels; "75%", "50%" or
-	"25%" that part of them each way. The picture keeps its shape: a width
-	of another (display.screen_width) is letterboxed. */
+	"25%" that part of them each way; "480p" to "2160p" that many lines,
+	which the display blit scales to the display. The picture keeps its
+	shape: a width of another (display.screen_width) is letterboxed. */
+	if (lines > 0)
+	{
+		scale[0] = scale[1] = (float)lines / (float)SCREEN_HEIGHT;
+		screen_scale_fit(*width, scale);
+		return;
+	}
 	if (part <= 0.0f)
 		return;
 	platform_video_drawable_size(&display_width, &display_height);
@@ -232,20 +265,11 @@ static void screen_mode_choose(long *width, float scale[2])
 		scale[0] = scale[1] = scale[0] < scale[1] ? scale[0] : scale[1];
 	scale[0] *= part;
 	scale[1] *= part;
-	/* (no more than the GPU's largest target, once it is known) */
-	if (maximum_target_size > 0 && (*width * scale[0] > (float)maximum_target_size ||
-		SCREEN_HEIGHT * scale[1] > (float)maximum_target_size))
-	{
-		float fit = (float)maximum_target_size / (*width * scale[0]);
-
-		if ((float)maximum_target_size / (SCREEN_HEIGHT * scale[1]) < fit)
-			fit = (float)maximum_target_size / (SCREEN_HEIGHT * scale[1]);
-		scale[0] *= fit;
-		scale[1] *= fit;
-	}
+	screen_scale_fit(*width, scale);
 #else
 	long display_width, display_height;
-	float part = resolution_scaling_part();
+	long lines;
+	float part = resolution_scaling_part(&lines);
 
 	*width = 640;
 	scale[0] = scale[1] = 1.0f;
@@ -267,6 +291,12 @@ static void screen_mode_choose(long *width, float scale[2])
 		{
 			scale[0] *= part;
 			scale[1] *= part;
+		}
+		/* its "480p" to "2160p": that many lines, at the window's shape */
+		if (lines > 0)
+		{
+			scale[0] = scale[1] = (float)lines / (float)SCREEN_HEIGHT;
+			screen_scale_fit(*width, scale);
 		}
 		/* supersampling: twice the pixels each way, or as many as the GPU's
 		largest target has (once it is known), which the display blit

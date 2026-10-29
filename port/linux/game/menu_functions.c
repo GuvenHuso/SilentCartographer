@@ -28,7 +28,8 @@ calls them from PC_MENU_FUNCTION_BASE on):
   (OK) writes those changed and applies the window's (the rest follow
   config.toml themselves), "port settings defaults" shows the defaults,
   "port settings help" the help of the row chosen (and Video Setup's
-  Resolution or Window Size, for the display mode shown);
+  Resolution or Window Size, for the display mode shown, and which of
+  Resolution Scaling and Render Resolution is used, the other greyed);
 - Controls Setup's: the keyboard and mouse's controls, two bindings each,
   shown a group at a time ("controls update menu"); "controls begin
   binding" takes the next key or button pressed for the binding left and
@@ -1477,11 +1478,118 @@ static struct widget_instance *screen_of(struct widget_instance *widget)
 	return widget;
 }
 
+/* Video Setup's Resolution Scaling and Render Resolution, two rows of one
+setting, each with some of its values (tools/port_settings.py): the row whose
+value the setting has is used, and the other is greyed (pc_menu_text_color)
+and not saved until its value is changed, when it is used and the first is
+greyed */
+static char const *const resolution_row_spinners[2] = { "resolution_scaling_spinner", "render_resolution_spinner" };
+static char const *const resolution_row_labels[2] = { "resolution_scaling_label", "render_resolution_label" };
+
+static struct
+{
+	/* the screen's Resolution Scaling spinner, when it was made, and each
+	row's value as last seen */
+	struct widget_instance *spinner;
+	long creation_time;
+	short shown[2];
+	/* the row used, or NONE (no screen with both rows) */
+	short used;
+} resolution_rows = { NULL, 0, { NONE, NONE }, NONE };
+
+/* the row whose values have the setting's (its default's), else the first */
+static short resolution_row_of(struct pc_menu_setting const *render, boolean default_value)
+{
+	char text[300];
+	short index;
+
+	if (!setting_text(render->setting, text, sizeof(text), default_value))
+		return 0;
+	for (index = 0; index < render->value_count; index++)
+	{
+		if (!_stricmp(render->values[index], text))
+			return 1;
+	}
+	return 0;
+}
+
+/* "port settings help": the row used, by the value changed last (Defaults
+chose it themselves: resolution_rows_default) */
+static void resolution_rows_show(struct widget_instance *list)
+{
+	struct widget_instance *spinners[2];
+	struct pc_menu_setting *settings[2];
+	boolean changed[2];
+	short row;
+
+	for (row = 0; row < 2; row++)
+	{
+		spinners[row] = named(list, resolution_row_spinners[row], 0);
+		settings[row] = spinners[row] ? pc_menu_setting_get(spinners[row]->definition_tag_index) : NULL;
+	}
+	if (!settings[0] || !settings[1])
+	{
+		resolution_rows.used = NONE;
+		return;
+	}
+	/* (a screen just opened: the row of the setting's value, the other's
+	value never the one loaded, so that it is saved once used, whatever it
+	shows) */
+	if (resolution_rows.used == NONE || spinners[0] != resolution_rows.spinner ||
+		spinners[0]->creation_time != resolution_rows.creation_time)
+	{
+		resolution_rows.spinner = spinners[0];
+		resolution_rows.creation_time = spinners[0]->creation_time;
+		resolution_rows.used = resolution_row_of(settings[1], FALSE);
+		settings[!resolution_rows.used]->loaded_index = NONE;
+		for (row = 0; row < 2; row++)
+			resolution_rows.shown[row] = spinners[row]->parameters.list.selected_index;
+		return;
+	}
+	for (row = 0; row < 2; row++)
+	{
+		changed[row] = spinners[row]->parameters.list.selected_index != resolution_rows.shown[row];
+		resolution_rows.shown[row] = spinners[row]->parameters.list.selected_index;
+	}
+	if (changed[0] != changed[1])
+		resolution_rows.used = changed[1];
+}
+
+/* "port settings defaults": the row of the default */
+static void resolution_rows_default(struct widget_instance *screen)
+{
+	struct widget_instance *render = named(screen, resolution_row_spinners[1], 0);
+	struct pc_menu_setting *setting = render ? pc_menu_setting_get(render->definition_tag_index) : NULL;
+	short row;
+
+	if (!setting || resolution_rows.used == NONE)
+		return;
+	resolution_rows.used = resolution_row_of(setting, TRUE);
+	for (row = 0; row < 2; row++)
+	{
+		struct widget_instance *spinner = named(screen, resolution_row_spinners[row], 0);
+
+		if (spinner)
+			resolution_rows.shown[row] = spinner->parameters.list.selected_index;
+	}
+}
+
+/* whether the widget is of the row not used (its label, spinner or items) */
+static boolean resolution_row_unused(struct widget_instance const *widget)
+{
+	short unused = !resolution_rows.used;
+
+	return resolution_rows.used != NONE && (!strcmp(widget->name, resolution_row_spinners[unused]) ||
+		!strcmp(widget->name, resolution_row_labels[unused]));
+}
+
 /* "port settings save" (OK): those changed written, and applied */
 static boolean setting_changed_save(struct widget_instance *spinner, struct pc_menu_setting *setting)
 {
 	short index = spinner->parameters.list.selected_index;
 
+	if (resolution_row_unused(spinner))
+		return TRUE;
 	if (index < 0 || index >= setting->value_count || index == setting->loaded_index)
 		return TRUE;
 	if (!setting_write(setting->setting, setting->values[index]))
@@ -3854,13 +3962,21 @@ enum
 #define ROW_COLOR_GREYED 0x8A8F99FFUL
 
 /* ui_widget.c: a text's colour in place of its own (FALSE: its own): a
-server browser row's ping by how good it is */
+server browser row's ping by how good it is, and Video Setup's resolution
+row not used grey */
 boolean pc_menu_text_color(struct widget_instance *widget, real_argb_color *color)
 {
 	short row = widget->parent ? browser_row_index(widget->parent) : NONE;
 	short ping;
 	unsigned long rgba;
 
+	if (resolution_row_unused(widget))
+	{
+		color->red = (real)((ROW_COLOR_GREYED >> 24) & 0xFF) / 255.0f;
+		color->green = (real)((ROW_COLOR_GREYED >> 16) & 0xFF) / 255.0f;
+		color->blue = (real)((ROW_COLOR_GREYED >> 8) & 0xFF) / 255.0f;
+		return TRUE;
+	}
 	if (row < 0 || row >= BROWSER_ROWS || strncmp(widget->name, "server_item_", 12))
 		return FALSE;
 	ping = browser_row_pings[row];
@@ -7265,6 +7381,7 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port settings defaults"))
 		{
 			settings_each(screen_of(widget), setting_default_show);
+			resolution_rows_default(screen_of(widget));
 		}
 		else if (!strcmp(name, "port mods init") || !strcmp(name, "port mods close"))
 		{
@@ -7459,6 +7576,7 @@ void pc_menu_game_data_function_invoke(
 	else if (!strcmp(name, "port settings help"))
 	{
 		video_rows_show(widget);
+		resolution_rows_show(widget);
 		hud_button_style_row_show(widget);
 		master_servers_show(widget);
 		settings_help(widget);
