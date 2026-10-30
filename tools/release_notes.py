@@ -6,8 +6,8 @@ workflow's release job (.github/workflows/build.yml):
     python tools/release_notes.py discord TAG SHA
 
 notes writes the release's notes: every commit since the build-* release
-before TAG (merges left out, oldest first), then the release's downloads
-and its build. discord posts the same changes to the Discord webhook in
+before TAG (merges left out, oldest first), then the release's downloads,
+its build and its network version. discord posts the same changes to the Discord webhook in
 DISCORD_RELEASES_WEBHOOK as an embed (the release's title, a link to it,
 the changes and the downloads); with no webhook it posts nothing. Discord
 limits a webhook's posts (HTTP 429, retry_after): a post is tried again a
@@ -80,6 +80,17 @@ def downloads():
     return " · ".join(f"[{name}]({latest}/halo-{platform}-release.zip)" for name, platform in PLATFORMS)
 
 
+def network_version(sha):
+    """the network version sha's build plays (HALO_PORT_NETWORK_VERSION, in
+    port/linux/include/halo_port_limits.h), or None"""
+    header = git("show", f"{sha}:port/linux/include/halo_port_limits.h")
+    for line in header.splitlines():
+        words = line.split()
+        if words[:2] == ["#define", "HALO_PORT_NETWORK_VERSION"] and len(words) > 2 and words[2].isdigit():
+            return words[2]
+    return None
+
+
 def notes(tag, sha):
     commits, more, previous = changes(tag, sha)
     since = f" since {previous}" if previous else ""
@@ -89,6 +100,11 @@ def notes(tag, sha):
     run_id = os.environ.get("GITHUB_RUN_ID")
     if run_id:
         lines.append(f"**Build:** {repository_url()}/actions/runs/{run_id}")
+    # (plain, as the game's updater and a dedicated server's
+    # server.auto_update look for "Network version: <n>" in the notes)
+    version = network_version(sha)
+    if version:
+        lines.append(f"Network version: {version}")
     lines += ["", "The release builds are for playing; the debug builds stop at the first failed assertion and log it."]
     return "\n".join(lines) + "\n"
 
