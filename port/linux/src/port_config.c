@@ -115,7 +115,9 @@ static const struct config_setting config_settings[] =
 		"display.resolution; on Android, the display's); \"75%\", \"50%\" or \"25%\"\n"
 		"draw that part of it each way and scale it up; \"original\" draws the\n"
 		"Xbox's 480 lines (640x480; on Android, at the display's shape) and\n"
-		"scales them up, as Android does unless this is set." },
+		"scales them up, as Android does unless this is set; \"480p\", \"720p\",\n"
+		"\"1080p\", \"1440p\" or \"2160p\" draw that many lines, at the window's\n"
+		"shape, scaled to it." },
 	{ "display.window_size", _config_string, "\"\"", "HALO_WINDOW_SIZE", _environment_value, _platform_desktop,
 		"The window's size, \"<width>x<height>\" (\"1920x1080\"), 640x480 or more (it\n"
 		"can be resized). Empty: display.window_scale's." },
@@ -2028,7 +2030,8 @@ static const struct
 } config_words[] =
 {
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
-	{ "display.resolution_scaling", { "native", "75%", "50%", "25%", "original", NULL }, NULL },
+	{ "display.resolution_scaling", { "native", "75%", "50%", "25%", "original", "480p", "720p", "1080p",
+		"1440p", "2160p", NULL }, NULL },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
 	{ "display.hud_button_style", { "classic", "gems", "menu_gems", "dark_gems", "xbox_modern",
 		"ps_classic", "ps_gems", "ps_dark_gems", "ps_modern", "switch_classic", "switch_gems", "switch_modern", NULL }, NULL },

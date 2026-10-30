@@ -96,6 +96,7 @@ To install the data from a computer:
 | Item | Location in `/sdcard/Android/data/com.halo.decomp/files` |
 | --- | --- |
 | Saved games (`z:\` and `u:\`) | `save` |
+| Halo Custom Edition maps, with Custom Edition's `bitmaps.map`, `sounds.map` and `loc.map` (`docs/custom_edition_caches.md`) | `custom_maps`, which the game makes at its first start: `adb push <map>.map /sdcard/Android/data/com.halo.decomp/files/custom_maps/` |
 | Mods (`docs/mods.md`) | `mods`: `adb push <mod folder> /sdcard/Android/data/com.halo.decomp/files/mods/`; the main menu's Mods orders them and turns them off |
 | Log | `debug.txt` |
 | Settings | `config.toml` |
@@ -269,7 +270,7 @@ These settings are only for Android:
 | `input.touch_controls` | The touch controls in a game. `"auto"` (the default): shown on a touchscreen while no controller is connected. `"on"`: also shown with a controller. `"off"`: never shown. A device without a touchscreen never shows them. The carnage report's CONTINUE and LEAVE buttons follow the same rule (otherwise it shows its A and B prompt). The menus take taps in any case. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
 | `display.stats_log` | `false` (the default): `true` writes a line a second to the log with the frame rate, the mode, the map, the renderer and the size of the 3D view, for a bug report or to compare two builds. |
-| `display.resolution_scaling` | Also Linux's, with another default on Android. `"original"` (the default): the game draws the 480 lines of the Xbox, which the display scales up. `"native"`: the game draws at the display's resolution (1080 lines on a 1080p phone). `"75%"`, `"50%"` or `"25%"`: that part of the display's resolution each way, scaled up: less for the GPU to draw, for more frames a second and less heat. Video Setup's Resolution Scaling sets it, from the next frame. |
+| `display.resolution_scaling` | Also Linux's, with another default on Android. `"original"` (the default): the game draws the 480 lines of the Xbox, which the display scales up. `"native"`: the game draws at the display's resolution (1080 lines on a 1080p phone). `"75%"`, `"50%"` or `"25%"`: that part of the display's resolution each way, scaled up: less for the GPU to draw, for more frames a second and less heat. `"480p"`, `"720p"`, `"1080p"`, `"1440p"` or `"2160p"`: that many lines, at the display's shape, whatever the display's resolution (more than it has are scaled down). Video Setup's Resolution Scaling sets the first ones and Render Resolution the lines, from the next frame; the row not used is grey until its value is changed, and then the other is. |
 | `debug.sample_seconds` | Refer to "Find problems". |
 | `debug.memory_watch` | `true` (the default): the app notices the game's writes to cached textures by page protection. `false`: it compares page contents once a frame instead, which is slower. Geometry uses the streaming path in either mode. Refer to "Limits". |
 
@@ -419,6 +420,12 @@ Thus:
 If the addresses are not available, the game shows a message, and writes
 the mappings below 4 GB to `memory_map.txt` in the data folder and to the
 log.
+
+Halo Custom Edition maps need `0x40440000` to `0x41b40000` too, where
+their tags are linked. `JNI_OnLoad` reserves that range with the others,
+but never takes it from ART. If ART's spaces cover it, the game starts
+without Custom Edition maps, and the log shows
+`cannot reserve the Custom Edition tag cache`.
 
 To test the reclaim on any device, set a system property before you start
 the game. The app then puts a stand-in for ART's large object space over

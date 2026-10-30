@@ -34,6 +34,15 @@ C heap there, do not run.
 #include <sys/mman.h>
 #include <unistd.h>
 
+#ifdef HALO_ANDROID
+#include "halo_android_abi.h"
+
+/* the range the host reserves for the tag cache (port/android/host/host_memory.c) */
+typedef char verify_custom_edition_tag_cache_reserved[
+	CUSTOM_EDITION_TAG_CACHE_ADDRESS == HALO_GUEST_CUSTOM_EDITION_BASE &&
+	CUSTOM_EDITION_TAG_CACHE_BYTES == HALO_GUEST_CUSTOM_EDITION_SIZE ? 1 : -1];
+#endif
+
 #ifdef HALO_WEB
 /* the memory's size: whether it covers the window */
 #define web_memory_bytes() ((unsigned long long)__builtin_wasm_memory_size(0) << 16)
