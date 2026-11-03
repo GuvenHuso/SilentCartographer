@@ -22,7 +22,10 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.halo.decomp"
+        // SilentCartographer's own app, installed beside OpenCE's (whose is
+        // com.halo.decomp) with its own data; the classes keep their package
+        // (namespace), which the native code's JNI names follow
+        applicationId "com.silentcartographer.halo"
         minSdk 28
         targetSdk 35
         versionCode Math.max(1, buildNumber)

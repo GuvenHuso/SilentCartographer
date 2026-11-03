@@ -147,8 +147,8 @@ game.
 
 - **Linux, Windows**: put the mod's folder in `mods/` next to `maps/`.
 - **Android**: put it in `mods/` in the app's data folder,
-  `/sdcard/Android/data/com.halo.decomp/files/mods`, for example with
-  `adb push hd_audio /sdcard/Android/data/com.halo.decomp/files/mods/`.
+  `/sdcard/Android/data/com.silentcartographer.halo/files/mods`, for example with
+  `adb push hd_audio /sdcard/Android/data/com.silentcartographer.halo/files/mods/`.
 - **Web**: on the page, **Mods**, **Add a mod folder…** copies a mod's
   `mod.toml` and `tags` folder into the browser's storage for the site.
   **Remove** deletes it again.
