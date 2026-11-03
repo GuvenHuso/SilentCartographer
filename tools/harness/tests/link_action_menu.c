@@ -28,6 +28,9 @@ static int player_link_begin(int master){begun=master;begin_count++;return 1;}
 static void player_link_unlink(void){unlink_count++;}
 static struct pc_menu_setting link_setting={7,"link.action",6,{"none","link_1","link_2","link_3","link_4","unlink"},NONE};
 static struct pc_menu_setting *pc_menu_setting_get(long definition_index){return definition_index==7?&link_setting:NULL;}
+/* Video Setup's Resolution Scaling and Render Resolution rows, one of them
+greyed: never this screen's spinner */
+static boolean resolution_row_unused(struct widget_instance const *widget){(void)widget;return FALSE;}
 #include "under_test.inc"
 static struct widget_instance spinner;
 /* the screen opened (the spinner's "port setting load"), the spinner moved
