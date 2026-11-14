@@ -3,6 +3,6 @@
     <shortcut android:shortcutId="mcc_import" android:enabled="true"
         android:shortcutShortLabel="@string/mcc_import_label">
         <intent android:action="android.intent.action.VIEW"
-            android:targetPackage="com.halo.decomp" android:targetClass="com.halo.decomp.MccImportActivity" />
+            android:targetPackage="com.halo.decomp.test" android:targetClass="com.halo.decomp.MccImportActivity" />
     </shortcut>
 </shortcuts>
